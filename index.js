@@ -9,20 +9,20 @@ app.use(express.json());
 // =============================
 const TELEGRAM_BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
 
-// 支持多个群
-const TELEGRAM_CHAT_IDS = [-1003262870745]; // 可以继续加群ID，例如 [-1003262870745, -100xxxxxx]
+// 群ID列表
+const TELEGRAM_CHAT_IDS = [-1003262870745];
 
-// 管理员用户名列表（只有这些人可以点击按钮）
-const ADMINS = ["admin1", "admin2"]; // Telegram 用户名，不带 @
+// 管理员用户名列表（不带 @）
+const ADMINS = ["your_admin_username"]; // 改成你的Telegram用户名
 
-// 交易币种及随机汇率
+// 交易币种和随机汇率
 const coins = ["BTC","ETH","USDT","USDC","BNB","ADA","DOGE","XRP","LTC","DOT","SOL","MATIC"];
 let rate = {};
 coins.forEach(c => rate[c] = Math.random()*0.1+0.01);
 rate["USDT"] = 1;
 
 // =============================
-// 发送交易消息函数
+// 发送交易消息
 // =============================
 async function sendTradeMessage(tradeType, coin, amount, amountCurrency, tp, sl) {
   const now = new Date().toLocaleString();
@@ -55,15 +55,15 @@ async function sendTradeMessage(tradeType, coin, amount, amountCurrency, tp, sl)
 app.post("/webhook", async (req, res) => {
   const data = req.body;
 
-  // 处理按钮点击
+  // 按钮点击事件
   if (data.callback_query) {
-    const callbackData = data.callback_query.data;
     const username = data.callback_query.from.username || data.callback_query.from.first_name;
     const chatId = data.callback_query.message.chat.id;
     const messageId = data.callback_query.message.message_id;
+    const callbackData = data.callback_query.data;
     const now = new Date().toLocaleString();
 
-    // 检查是否管理员
+    // 只有管理员可操作
     if (!ADMINS.includes(username)) {
       await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
         method: "POST",
@@ -86,7 +86,6 @@ app.post("/webhook", async (req, res) => {
     }
 
     if (text) {
-      // 编辑原消息同步更新
       await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -99,9 +98,15 @@ app.post("/webhook", async (req, res) => {
       });
     }
 
-    // 回复 Telegram 已收到
-    res.sendStatus(200);
-    return;
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        callback_query_id: data.callback_query.id
+      })
+    });
+
+    return res.sendStatus(200);
   }
 
   res.sendStatus(200);
