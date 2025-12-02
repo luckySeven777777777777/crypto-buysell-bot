@@ -8,12 +8,12 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-const PORT = process.env.PORT || 8080; // Railway 会自动提供 PORT
+const PORT = process.env.PORT || 8080;
 
-// Telegram 配置
-const BOT_TOKEN = process.env.BOT_TOKEN || "你的BotToken";
-const GROUP_ID = process.env.GROUP_ID || -1003262870745;
-const PRIVATE_ID = process.env.PRIVATE_ID || 6062973135;
+// 从环境变量读取 Telegram 配置
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const GROUP_ID = Number(process.env.GROUP_ID);       // 转为数字
+const PRIVATE_ID = Number(process.env.PRIVATE_ID);   // 转为数字
 const ADMIN_IDS = [PRIVATE_ID];
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
@@ -55,6 +55,7 @@ SL: *${trade.sl || "None"}*
 // 按钮点击处理
 bot.on("callback_query", async (query) => {
   const userId = query.from.id;
+
   if (!ADMIN_IDS.includes(userId)) {
     await bot.answerCallbackQuery(query.id, { text: "❌ 无权限", show_alert: true });
     return;
