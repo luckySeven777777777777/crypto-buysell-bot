@@ -23,13 +23,16 @@ const ADMIN_IDS = [PRIVATE_ID];
 // 初始化轮询 Bot
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
+// 临时缓存交易数据
+const tradesCache = new Map(); // key: tradeId, value: trade对象
+
 // 创建按钮
-function createInlineKeyboard() {
+function createInlineKeyboard(tradeId) {
   return {
     inline_keyboard: [
       [
-        { text: "✔ 成功交易", callback_data: "trade_success" },
-        { text: "✖ 取消交易", callback_data: "trade_cancel" }
+        { text: "✔ 成功交易", callback_data: `trade_success_${tradeId}` },
+        { text: "✖ 取消交易", callback_data: `trade_cancel_${tradeId}` }
       ]
     ]
   };
@@ -37,6 +40,9 @@ function createInlineKeyboard() {
 
 // 发送消息到群和个人
 async function sendTradeMessage(trade) {
+  const tradeId = Date.now(); // 简单唯一 ID
+  tradesCache.set(tradeId, trade);
+
   const msg = `
 📣 *New Trade Request*
 Type: *${trade.tradeType.toUpperCase()}*
@@ -47,16 +53,18 @@ SL: *${trade.sl || "None"}*
 Time: ${new Date().toLocaleString()}
 `;
 
+  const keyboard = createInlineKeyboard(tradeId);
+
   // 发送到群
   await bot.sendMessage(GROUP_ID, msg, {
     parse_mode: "Markdown",
-    reply_markup: createInlineKeyboard(),
+    reply_markup: keyboard,
   });
 
   // 发送到个人
   await bot.sendMessage(PRIVATE_ID, msg, {
     parse_mode: "Markdown",
-    reply_markup: createInlineKeyboard(),
+    reply_markup: keyboard,
   });
 }
 
@@ -79,39 +87,33 @@ bot.on("callback_query", async (callbackQuery) => {
     ? `@${callbackQuery.from.username}`
     : callbackQuery.from.first_name;
 
-  // 提取原始交易信息
-  const originalText = callbackQuery.message.text;
+  // 从 callback_data 提取 tradeId
+  const match = callbackQuery.data.match(/(trade_success|trade_cancel)_(\d+)/);
+  if (!match) return;
 
-  const typeMatch = originalText.match(/Type: \*(.+?)\*/);
-  const coinMatch = originalText.match(/Coin: \*(.+?)\*/);
-  const amountMatch = originalText.match(/Amount: \*(.+?)\*/);
-  const tpMatch = originalText.match(/TP: \*(.+?)\*/);
-  const slMatch = originalText.match(/SL: \*(.+?)\*/);
-
-  const typeText = typeMatch ? typeMatch[1] : "未知";
-  const coinText = coinMatch ? coinMatch[1] : "未知";
-  const amountText = amountMatch ? amountMatch[1] : "未知";
-  const tpText = tpMatch ? tpMatch[1] : "None";
-  const slText = slMatch ? slMatch[1] : "None";
+  const action = match[1];
+  const tradeId = Number(match[2]);
+  const trade = tradesCache.get(tradeId);
+  if (!trade) return;
 
   let textUpdate = "";
-  if (callbackQuery.data === "trade_success") {
+  if (action === "trade_success") {
     textUpdate = `✔ 交易已成功！
 操作人: ${fromUser}
-类型: ${typeText}
-币种: ${coinText}
-交易金额: ${amountText}
-TP: ${tpText}
-SL: ${slText}
+类型: ${trade.tradeType.toUpperCase()}
+币种: ${trade.coin}
+交易金额: ${trade.amount} ${trade.amountCurrency}
+TP: ${trade.tp || "None"}
+SL: ${trade.sl || "None"}
 时间: ${new Date().toLocaleString()}`;
-  } else if (callbackQuery.data === "trade_cancel") {
+  } else if (action === "trade_cancel") {
     textUpdate = `❌ 交易已取消！
 操作人: ${fromUser}
-类型: ${typeText}
-币种: ${coinText}
-交易金额: ${amountText}
-TP: ${tpText}
-SL: ${slText}
+类型: ${trade.tradeType.toUpperCase()}
+币种: ${trade.coin}
+交易金额: ${trade.amount} ${trade.amountCurrency}
+TP: ${trade.tp || "None"}
+SL: ${trade.sl || "None"}
 时间: ${new Date().toLocaleString()}`;
   }
 
@@ -124,6 +126,9 @@ SL: ${slText}
   });
 
   await bot.answerCallbackQuery(callbackQuery.id, { text: "操作已记录" });
+
+  // 删除缓存
+  tradesCache.delete(tradeId);
 });
 
 // /trade 接口，前端调用
