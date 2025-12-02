@@ -20,6 +20,7 @@ const PRIVATE_ID = 6062973135;
 // 管理员ID列表
 const ADMIN_IDS = [PRIVATE_ID];
 
+// 初始化轮询 Bot
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 // 创建按钮
@@ -78,11 +79,22 @@ bot.on("callback_query", async (callbackQuery) => {
     ? `@${callbackQuery.from.username}`
     : callbackQuery.from.first_name;
 
+  // 提取原始交易信息（金额 + 币种）
+  const originalText = callbackQuery.message.text;
+  const amountMatch = originalText.match(/Amount: \*(.+?)\*/);
+  const amountText = amountMatch ? amountMatch[1] : "未知";
+
   let textUpdate = "";
   if (callbackQuery.data === "trade_success") {
-    textUpdate = `✔ 交易已成功！\n操作人: ${fromUser}\n时间: ${new Date().toLocaleString()}`;
+    textUpdate = `✔ 交易已成功！
+操作人: ${fromUser}
+交易金额: ${amountText}
+时间: ${new Date().toLocaleString()}`;
   } else if (callbackQuery.data === "trade_cancel") {
-    textUpdate = `❌ 交易已取消！\n操作人: ${fromUser}\n时间: ${new Date().toLocaleString()}`;
+    textUpdate = `❌ 交易已取消！
+操作人: ${fromUser}
+交易金额: ${amountText}
+时间: ${new Date().toLocaleString()}`;
   }
 
   await bot.editMessageText(textUpdate, {
@@ -98,7 +110,7 @@ bot.on("callback_query", async (callbackQuery) => {
 app.post("/trade", async (req, res) => {
   try {
     const trade = req.body;
-    if (!trade.tradeType || !trade.coin || !trade.amount) {
+    if (!trade.tradeType || !trade.coin || !trade.amount || !trade.amountCurrency) {
       return res.status(400).send("Missing trade parameters");
     }
     await sendTradeMessage(trade);
