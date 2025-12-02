@@ -8,18 +8,18 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-const PORT = 8080;
+const PORT = process.env.PORT || 8080; // Railway 会自动提供 PORT
 
 // Telegram 配置
-const BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
-const GROUP_ID = -1003262870745;
-const PRIVATE_ID = 6062973135;
+const BOT_TOKEN = process.env.BOT_TOKEN || "你的BotToken";
+const GROUP_ID = process.env.GROUP_ID || -1003262870745;
+const PRIVATE_ID = process.env.PRIVATE_ID || 6062973135;
 const ADMIN_IDS = [PRIVATE_ID];
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 const trades = {}; // 存储交易信息
 
-// 创建 Telegram 按钮
+// 创建按钮
 function createButtons(tradeId) {
   return {
     inline_keyboard: [
@@ -31,7 +31,7 @@ function createButtons(tradeId) {
   };
 }
 
-// 发送交易消息到群和私人
+// 发送交易消息
 async function sendTrade(trade) {
   const tradeId = uuidv4();
   trades[tradeId] = trade;
@@ -52,7 +52,7 @@ SL: *${trade.sl || "None"}*
   await bot.sendMessage(PRIVATE_ID, msg, { parse_mode: "Markdown", reply_markup: keyboard });
 }
 
-// 处理按钮点击
+// 按钮点击处理
 bot.on("callback_query", async (query) => {
   const userId = query.from.id;
   if (!ADMIN_IDS.includes(userId)) {
@@ -98,16 +98,14 @@ SL: ${trade.sl}
   delete trades[tradeId];
 });
 
-// 接口接收前端提交的交易
+// 接收前端交易提交
 app.post("/trade", async (req, res) => {
   const trade = req.body;
 
-  // 验证字段
   if (!trade.type || !trade.coin || !trade.amount || !trade.amountCurrency) {
     return res.status(400).send("缺少交易参数");
   }
 
-  // 如果 TP/SL 没填，用 "None"
   trade.tp = trade.tp || "None";
   trade.sl = trade.sl || "None";
   trade.time = trade.time || new Date().toLocaleString();
