@@ -12,12 +12,13 @@ const ADMINS = [
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 let ORDER_ID = 10001;
-let pendingOrders = {}; // { orderId: { messages: [{chatId,messageId}], locked: false } }
+let pendingOrders = {}; 
+// pendingOrders[orderId] = { messages: [{chatId,messageId}], locked: false }
 
 const app = express();
 app.use(express.json());
 
-// 新订单接口
+// 创建新订单
 app.post("/trade", async (req, res) => {
     const data = req.body;
     const orderId = ORDER_ID++;
@@ -56,14 +57,14 @@ app.post("/trade", async (req, res) => {
     res.json({ ok: true });
 });
 
-// 按钮回调处理
+// 每笔订单独立处理点击
 bot.on("callback_query", async (query) => {
     const [action, orderIdStr] = query.data.split("_");
     const orderId = parseInt(orderIdStr);
     const operator = query.from.first_name || "管理员";
     const userId = query.from.id;
 
-    // 1. 只能管理员操作
+    // 只允许管理员点击
     if (!ADMINS.includes(userId)) {
         await bot.answerCallbackQuery(query.id, { text: "只有管理员可以操作订单", show_alert: true });
         return;
@@ -75,19 +76,19 @@ bot.on("callback_query", async (query) => {
         return;
     }
 
+    // 每笔订单独立锁定
     if (order.locked) {
         await bot.answerCallbackQuery(query.id, { text: "此订单已处理过", show_alert: true });
         return;
     }
 
-    // 2. 锁定订单，防止重复点击
-    order.locked = true;
+    order.locked = true; // 锁定本订单
 
     const finalText = action === "ok"
         ? `✔ *交易已确认成功*\n🆔 Order ID: ${orderId}\n操作者: ${operator}`
         : `✖ *交易已取消*\n🆔 Order ID: ${orderId}\n操作者: ${operator}`;
 
-    // 3. 删除原按钮
+    // 删除本订单按钮
     for (const msg of order.messages) {
         try {
             await bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
@@ -99,7 +100,7 @@ bot.on("callback_query", async (query) => {
         }
     }
 
-    // 4. 群 + 私人都发送处理结果
+    // 群 + 私人通知处理结果
     for (const chatId of ADMINS) {
         try {
             await bot.sendMessage(chatId, finalText, { parse_mode: "Markdown" });
@@ -108,7 +109,6 @@ bot.on("callback_query", async (query) => {
         }
     }
 
-    // 5. 回复 callback_query
     await bot.answerCallbackQuery(query.id);
 });
 
