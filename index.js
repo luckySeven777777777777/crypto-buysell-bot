@@ -5,21 +5,12 @@ import fs from "fs";
 // =====================================
 // 配置
 // =====================================
-const BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
+const BOT_TOKEN = "你的BOT_TOKEN";
 
-// 私聊 + 群（管理员列表）
 const ADMINS = [
-    6062973135,        // 你的私聊
-    -1003262870745,    // 群
+    6062973135,        // 私人
+    -1003262870745     // 群
 ];
-
-// 保存当前订单按钮
-let pendingMessages = [];   // { chatId, messageId }
-
-// 是否已被点击（锁）
-let orderLock = false;
-
-let ORDER_ID = 10001;
 
 // 日志文件
 const LOG_FILE = "logs.txt";
@@ -31,17 +22,24 @@ function writeLog(text) {
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 // =====================================
+// 数据结构
+// =====================================
+let ORDER_ID = 10001;
+let pendingMessages = []; 
+// { chatId, messageId, orderId }
+let orderLocks = {}; 
+// { orderId: true/false }
+
+// =====================================
 // Express 后端
 // =====================================
 const app = express();
 app.use(express.json());
 
 app.post("/trade", async (req, res) => {
-
     const data = req.body;
     const orderId = ORDER_ID++;
-    orderLock = false;     // 解锁新订单
-    pendingMessages = [];  // 清空旧订单按钮
+    orderLocks[orderId] = false;
 
     const msg =
 `📣 *New Trade Request*
@@ -54,6 +52,8 @@ app.post("/trade", async (req, res) => {
 🛑 SL: *${data.sl}*
 ⏰ Time: ${data.time}
 ━━━━━━━━━━━━━━`;
+
+    pendingMessages = pendingMessages.filter(m => m.orderId !== orderId); // 清理旧订单
 
     for (const adminId of ADMINS) {
         try {
@@ -74,75 +74,55 @@ app.post("/trade", async (req, res) => {
                 messageId: sent.message_id,
                 orderId
             });
-
         } catch (e) {
-            console.log("发送失败（可能群没加机器人或权限不足）", e.message);
+            console.log("发送失败:", e.message);
         }
     }
 
     writeLog(`订单创建：#${orderId}`);
-
     res.json({ ok: true });
 });
 
 // =====================================
-// 按钮回调：只能点击一次
+// 按钮回调处理
 // =====================================
 bot.on("callback_query", async (query) => {
-    const action = query.data.split("_")[0];  
-    const orderId = query.data.split("_")[1];
+    const [action, orderId] = query.data.split("_");
     const operator = query.from.first_name || "Admin";
 
-    // 阻止重复点击
-    if (orderLock) {
+    // 单订单锁
+    if (orderLocks[orderId]) {
         bot.answerCallbackQuery(query.id, {
             text: "此订单已处理过！",
             show_alert: true
         });
         return;
     }
+    orderLocks[orderId] = true;
 
-    // 开启锁（禁止后续任何点击）
-    orderLock = true;
+    // 生成最终消息
+    const finalMessage = action === "ok"
+        ? `✔ *交易已确认成功*\n🆔 Order ID: ${orderId}\n操作者: ${operator}`
+        : `✖ *交易已取消*\n🆔 Order ID: ${orderId}\n操作者: ${operator}`;
 
-    let finalMessage = "";
-
-    if (action === "ok") {
-        finalMessage =
-`✔ *交易已确认成功*
-🆔 Order ID: ${orderId}
-操作者: ${operator}`;
-    } else {
-        finalMessage =
-`✖ *交易已取消*
-🆔 Order ID: ${orderId}
-操作者: ${operator}`;
-    }
-
-    // 1️⃣ 广播处理结果（群 + 私聊）
-    for (const adminId of ADMINS) {
+    // 1️⃣ 删除按钮
+    for (const msg of pendingMessages.filter(m => m.orderId == orderId)) {
         try {
-            await bot.sendMessage(adminId, finalMessage, {
-                parse_mode: "Markdown"
+            await bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+                chat_id: msg.chatId,
+                message_id: msg.messageId
             });
         } catch (e) {}
     }
 
-    // 2️⃣ 删除所有订单按钮
-    for (const msg of pendingMessages) {
+    // 2️⃣ 给所有管理员（私人+群）发送最终消息
+    for (const adminId of ADMINS) {
         try {
-            await bot.editMessageReplyMarkup(
-                { inline_keyboard: [] },
-                {
-                    chat_id: msg.chatId,
-                    message_id: msg.messageId
-                }
-            );
+            await bot.sendMessage(adminId, finalMessage, { parse_mode: "Markdown" });
         } catch (e) {}
     }
 
     writeLog(`订单处理：#${orderId} → ${action} by ${operator}`);
-
     bot.answerCallbackQuery(query.id);
 });
 
