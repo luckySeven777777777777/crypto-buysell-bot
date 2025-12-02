@@ -1,12 +1,9 @@
 import express from "express";
 import TelegramBot from "node-telegram-bot-api";
 
-// ==========================
-// 配置
-// ==========================
 const BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
 
-// 管理员列表（只能管理员点击按钮）
+// 管理员列表
 const ADMINS = [
     6062973135,        // 私人
     -1003262870745     // 群
@@ -14,16 +11,10 @@ const ADMINS = [
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// ==========================
-// 数据结构
-// ==========================
 let ORDER_ID = 10001;
 let pendingOrders = {}; 
-// { orderId: { messages: [{chatId,messageId}], locked: false } }
+// pendingOrders[orderId] = { messages: [{chatId,messageId}], locked: false }
 
-// ==========================
-// Express 后端
-// ==========================
 const app = express();
 app.use(express.json());
 
@@ -31,7 +22,6 @@ app.post("/trade", async (req, res) => {
     const data = req.body;
     const orderId = ORDER_ID++;
 
-    // 初始化订单
     pendingOrders[orderId] = { messages: [], locked: false };
 
     const text = 
@@ -44,7 +34,6 @@ app.post("/trade", async (req, res) => {
 🛑 SL: ${data.sl}
 ⏰ Time: ${data.time}`;
 
-    // 发送给私人 + 群
     for (const chatId of ADMINS) {
         try {
             const sent = await bot.sendMessage(chatId, text, {
@@ -58,7 +47,6 @@ app.post("/trade", async (req, res) => {
                     ]
                 }
             });
-
             pendingOrders[orderId].messages.push({
                 chatId: sent.chat.id,
                 messageId: sent.message_id
@@ -71,16 +59,13 @@ app.post("/trade", async (req, res) => {
     res.json({ ok: true });
 });
 
-// ==========================
-// 按钮回调处理
-// ==========================
 bot.on("callback_query", async (query) => {
     const [action, orderIdStr] = query.data.split("_");
     const orderId = parseInt(orderIdStr);
     const operator = query.from.first_name || "管理员";
     const userId = query.from.id;
 
-    // 只能管理员操作
+    // 只有管理员能操作
     if (!ADMINS.includes(userId)) {
         await bot.answerCallbackQuery(query.id, { text: "只有管理员可以操作订单", show_alert: true });
         return;
@@ -97,14 +82,13 @@ bot.on("callback_query", async (query) => {
         return;
     }
 
-    // 锁定订单，禁止重复点击
     order.locked = true;
 
     const finalText = action === "ok"
         ? `✔ *交易已确认成功*\n🆔 Order ID: ${orderId}\n操作者: ${operator}`
         : `✖ *交易已取消*\n🆔 Order ID: ${orderId}\n操作者: ${operator}`;
 
-    // 1️⃣ 删除原按钮（按钮消失）
+    // 删除按钮
     for (const msg of order.messages) {
         try {
             await bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
@@ -116,7 +100,7 @@ bot.on("callback_query", async (query) => {
         }
     }
 
-    // 2️⃣ 给私人 + 群广播最终消息
+    // 给私人和群发送处理结果
     for (const chatId of ADMINS) {
         try {
             await bot.sendMessage(chatId, finalText, { parse_mode: "Markdown" });
@@ -125,9 +109,7 @@ bot.on("callback_query", async (query) => {
         }
     }
 
-    // 3️⃣ 回复 callback_query，保证按钮不会失效
     await bot.answerCallbackQuery(query.id);
 });
 
-// ==========================
 app.listen(3000, () => console.log("🚀 Server running on port 3000"));
