@@ -23,16 +23,27 @@ const ADMIN_IDS = [PRIVATE_ID];
 // 初始化轮询 Bot
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// 创建按钮，把必要信息编码进 callback_data
+// Base64 编码交易信息
+function encodeTrade(trade) {
+  const str = `${trade.tradeType}|${trade.coin}|${trade.amount}|${trade.amountCurrency}|${trade.tp || "None"}|${trade.sl || "None"}`;
+  return Buffer.from(str).toString("base64");
+}
+
+// Base64 解码交易信息
+function decodeTrade(data) {
+  const str = Buffer.from(data, "base64").toString("utf-8");
+  const [tradeType, coin, amount, amountCurrency, tp, sl] = str.split("|");
+  return { tradeType, coin, amount, amountCurrency, tp, sl };
+}
+
+// 创建按钮
 function createInlineKeyboard(trade) {
-  // Telegram callback_data 最大长度 64字节，所以编码简洁信息
-  const baseData = `${trade.tradeType}|${trade.coin}|${trade.amount}|${trade.amountCurrency}|${trade.tp||"None"}|${trade.sl||"None"}`;
-  
+  const encoded = encodeTrade(trade);
   return {
     inline_keyboard: [
       [
-        { text: "✔ 成功交易", callback_data: `trade_success_${baseData}` },
-        { text: "✖ 取消交易", callback_data: `trade_cancel_${baseData}` }
+        { text: "✔ 成功交易", callback_data: `trade_success_${encoded}` },
+        { text: "✖ 取消交易", callback_data: `trade_cancel_${encoded}` }
       ]
     ]
   };
@@ -52,13 +63,11 @@ Time: ${new Date().toLocaleString()}
 
   const keyboard = createInlineKeyboard(trade);
 
-  // 发送到群
   await bot.sendMessage(GROUP_ID, msg, {
     parse_mode: "Markdown",
     reply_markup: keyboard,
   });
 
-  // 发送到个人
   await bot.sendMessage(PRIVATE_ID, msg, {
     parse_mode: "Markdown",
     reply_markup: keyboard,
@@ -69,7 +78,6 @@ Time: ${new Date().toLocaleString()}
 bot.on("callback_query", async (callbackQuery) => {
   const userId = callbackQuery.from.id;
 
-  // 仅允许管理员操作
   if (!ADMIN_IDS.includes(userId)) {
     await bot.answerCallbackQuery(callbackQuery.id, {
       text: "❌ 你没有权限操作此按钮",
@@ -82,32 +90,31 @@ bot.on("callback_query", async (callbackQuery) => {
   const messageId = callbackQuery.message.message_id;
   const fromUser = callbackQuery.from.username || callbackQuery.from.first_name;
 
-  // callback_data 格式: action_tradeType|coin|amount|amountCurrency|TP|SL
+  // callback_data 格式: action_base64EncodedTrade
   const parts = callbackQuery.data.split("_");
   const action = parts[0]; // trade_success 或 trade_cancel
-  const data = parts.slice(1).join("_"); // tradeType|coin|amount|amountCurrency|TP|SL
+  const encodedData = parts.slice(1).join("_"); // base64 编码交易信息
 
-  const [tradeType, coin, amount, amountCurrency, tp, sl] = data.split("|");
+  const trade = decodeTrade(encodedData);
 
   const textUpdate = action === "trade_success"
     ? `✔ 交易已成功！
 操作人: ${fromUser}
-类型: ${tradeType}
-币种: ${coin}
-交易金额: ${amount} ${amountCurrency}
-TP: ${tp}
-SL: ${sl}
+类型: ${trade.tradeType}
+币种: ${trade.coin}
+交易金额: ${trade.amount} ${trade.amountCurrency}
+TP: ${trade.tp}
+SL: ${trade.sl}
 时间: ${new Date().toLocaleString()}`
     : `❌ 交易已取消！
 操作人: ${fromUser}
-类型: ${tradeType}
-币种: ${coin}
-交易金额: ${amount} ${amountCurrency}
-TP: ${tp}
-SL: ${sl}
+类型: ${trade.tradeType}
+币种: ${trade.coin}
+交易金额: ${trade.amount} ${trade.amountCurrency}
+TP: ${trade.tp}
+SL: ${trade.sl}
 时间: ${new Date().toLocaleString()}`;
 
-  // 更新消息并移除按钮
   await bot.editMessageText(textUpdate, {
     chat_id: chatId,
     message_id: messageId,
