@@ -1,108 +1,97 @@
-import express from "express";
-import fetch from "node-fetch";
+import { Telegraf, Markup } from "telegraf";
 
-const app = express();
-app.use(express.json());
-
-const PORT = process.env.PORT || 8080;
-
+// ==============================
+// 配置你的 Bot Token 和 ID
+// ==============================
 const BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
-const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const GROUP_ID = -1003262870745;
 const PRIVATE_ID = 6062973135;
 
-// 生成内联键盘
-function createInlineKeyboard() {
-  return {
-    inline_keyboard: [
-      [
-        { text: "✔️ 成功交易", callback_data: "trade_success" },
-        { text: "❌ 取消交易", callback_data: "trade_cancel" }
-      ]
-    ]
-  };
-}
+// 多管理员（可填 Telegram 用户名）
+const ADMINS = ["@YourUsername"];
 
-// 发送消息到群和私人
+const bot = new Telegraf(BOT_TOKEN);
+
+// 内联按钮
+const tradeButtons = Markup.inlineKeyboard([
+  [
+    Markup.button.callback("✔ 成功交易", "trade_success"),
+    Markup.button.callback("❌ 取消交易", "trade_cancel")
+  ]
+]);
+
+// 发送交易消息到群和私人
 async function sendTradeMessage(trade) {
-  const msg = `📣 *新交易请求*
+  const msg = `
+📣 *新交易请求*
 类型: *${trade.tradeType.toUpperCase()}*
 币种: *${trade.coin}*
 数量: *${trade.amount} ${trade.amountCurrency}*
 TP: *${trade.tp || "无"}*
 SL: *${trade.sl || "无"}*
-时间: ${new Date().toLocaleString()}`;
+时间: ${new Date().toLocaleString()}
+`;
 
-  for (const chat_id of [GROUP_ID, PRIVATE_ID]) {
-    await fetch(`${TELEGRAM_API}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id,
-        text: msg,
-        parse_mode: "Markdown",
-        reply_markup: createInlineKeyboard()
-      })
-    });
-  }
+  // 群消息
+  await bot.telegram.sendMessage(GROUP_ID, msg, { parse_mode: "Markdown", ...tradeButtons });
+
+  // 私人消息
+  await bot.telegram.sendMessage(PRIVATE_ID, msg, { parse_mode: "Markdown", ...tradeButtons });
 }
 
-// Webhook
-app.post("/webhook", async (req, res) => {
+// 监听按钮点击
+bot.on("callback_query", async (ctx) => {
+  const callbackData = ctx.callbackQuery.data;
+  const fromUser = ctx.callbackQuery.from.username
+    ? `@${ctx.callbackQuery.from.username}`
+    : ctx.callbackQuery.from.first_name;
+
+  let textUpdate = "";
+
+  if (callbackData === "trade_success") {
+    textUpdate = `✔ 交易已成功！\n操作人: ${fromUser}\n时间: ${new Date().toLocaleString()}`;
+  } else if (callbackData === "trade_cancel") {
+    textUpdate = `❌ 交易已取消！\n操作人: ${fromUser}\n时间: ${new Date().toLocaleString()}`;
+  }
+
+  // 编辑原消息
+  await ctx.editMessageText(textUpdate, { parse_mode: "Markdown" });
+
+  // 回复按钮点击，防止 Telegram loading
+  await ctx.answerCbQuery();
+});
+
+// 提供一个测试路由，通过 /trade POST 发送交易消息
+import express from "express";
+const app = express();
+app.use(express.json());
+
+app.post("/trade", async (req, res) => {
+  const trade = req.body;
+  if (!trade.tradeType || !trade.coin || !trade.amount || !trade.amountCurrency) {
+    return res.status(400).send("Missing trade parameters");
+  }
   try {
-    const update = req.body;
-
-    // 处理按钮点击
-    if (update.callback_query) {
-      const chat_id = update.callback_query.message.chat.id;
-      const message_id = update.callback_query.message.message_id;
-      const from_user = update.callback_query.from.username
-        ? `@${update.callback_query.from.username}`
-        : update.callback_query.from.first_name;
-
-      let textUpdate = "";
-      if (update.callback_query.data === "trade_success") {
-        textUpdate = `✔️ 交易已成功！\n操作人: ${from_user}\n时间: ${new Date().toLocaleString()}`;
-      } else if (update.callback_query.data === "trade_cancel") {
-        textUpdate = `❌ 交易已取消！\n操作人: ${from_user}\n时间: ${new Date().toLocaleString()}`;
-      }
-
-      await fetch(`${TELEGRAM_API}/editMessageText`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id,
-          message_id,
-          text: textUpdate,
-          parse_mode: "Markdown"
-        })
-      });
-
-      await fetch(`${TELEGRAM_API}/answerCallbackQuery`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ callback_query_id: update.callback_query.id })
-      });
-
-      return res.sendStatus(200);
-    }
-
-    // 普通 trade POST 请求
-    if (update.tradeType) {
-      await sendTradeMessage(update);
-      return res.sendStatus(200);
-    }
-
-    res.sendStatus(200);
+    await sendTradeMessage(trade);
+    res.status(200).send("Trade sent ✅");
   } catch (err) {
     console.error(err);
-    res.sendStatus(500);
+    res.status(500).send("Error sending trade");
   }
 });
 
-// 测试路由
 app.get("/", (req, res) => {
   res.send("Bot is running ✅");
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => {
+  console.log(`Express server running on port ${PORT}`);
+});
+
+// 启动轮询
+bot.launch().then(() => console.log("Bot polling started ✅"));
+
+// Graceful shutdown
+process.once("SIGINT", () => bot.stop("SIGINT"));
+process.once("SIGTERM", () => bot.stop("SIGTERM"));
