@@ -2,6 +2,7 @@ import express from "express";
 import TelegramBot from "node-telegram-bot-api";
 import path from "path";
 import { fileURLToPath } from "url";
+import { v4 as uuidv4 } from "uuid";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,31 +24,16 @@ const ADMIN_IDS = [PRIVATE_ID];
 // 初始化轮询 Bot
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// URL-safe Base64 编码交易信息
-function encodeTrade(trade) {
-  let str = `${trade.tradeType}|${trade.coin}|${trade.amount}|${trade.amountCurrency}|${trade.tp || "None"}|${trade.sl || "None"}`;
-  let encoded = Buffer.from(str).toString("base64");
-  encoded = encoded.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  return encoded;
-}
+// 内存存储交易信息
+const trades = {}; // key: tradeId, value: trade对象
 
-// URL-safe Base64 解码交易信息
-function decodeTrade(encoded) {
-  let str = encoded.replace(/-/g, "+").replace(/_/g, "/");
-  while (str.length % 4) str += "=";
-  str = Buffer.from(str, "base64").toString("utf-8");
-  const [tradeType, coin, amount, amountCurrency, tp, sl] = str.split("|");
-  return { tradeType, coin, amount, amountCurrency, tp, sl };
-}
-
-// 创建按钮
-function createInlineKeyboard(trade) {
-  const encoded = encodeTrade(trade);
+// 创建按钮，只传 tradeId
+function createInlineKeyboard(tradeId) {
   return {
     inline_keyboard: [
       [
-        { text: "✔ 成功交易", callback_data: `trade_success_${encoded}` },
-        { text: "✖ 取消交易", callback_data: `trade_cancel_${encoded}` }
+        { text: "✔ 成功交易", callback_data: `trade_success_${tradeId}` },
+        { text: "✖ 取消交易", callback_data: `trade_cancel_${tradeId}` }
       ]
     ]
   };
@@ -55,6 +41,9 @@ function createInlineKeyboard(trade) {
 
 // 发送消息到群和个人
 async function sendTradeMessage(trade) {
+  const tradeId = uuidv4();
+  trades[tradeId] = trade; // 保存到内存
+
   const msg = `
 📣 *New Trade Request*
 Type: *${trade.tradeType.toUpperCase()}*
@@ -65,7 +54,7 @@ SL: *${trade.sl || "None"}*
 Time: ${new Date().toLocaleString()}
 `;
 
-  const keyboard = createInlineKeyboard(trade);
+  const keyboard = createInlineKeyboard(tradeId);
 
   await bot.sendMessage(GROUP_ID, msg, {
     parse_mode: "Markdown",
@@ -94,12 +83,14 @@ bot.on("callback_query", async (callbackQuery) => {
   const messageId = callbackQuery.message.message_id;
   const fromUser = callbackQuery.from.username || callbackQuery.from.first_name;
 
-  // callback_data 格式: action_encodedTrade
-  const parts = callbackQuery.data.split("_");
-  const action = parts[0]; // trade_success 或 trade_cancel
-  const encodedData = parts.slice(1).join("_"); // URL-safe Base64 编码
+  // callback_data 格式: action_tradeId
+  const [action, tradeId] = callbackQuery.data.split("_");
+  const trade = trades[tradeId];
 
-  const trade = decodeTrade(encodedData);
+  if (!trade) {
+    await bot.answerCallbackQuery(callbackQuery.id, { text: "❌ 交易信息不存在", show_alert: true });
+    return;
+  }
 
   const textUpdate = action === "trade_success"
     ? `✔ 交易已成功！
@@ -107,16 +98,16 @@ bot.on("callback_query", async (callbackQuery) => {
 类型: ${trade.tradeType}
 币种: ${trade.coin}
 交易金额: ${trade.amount} ${trade.amountCurrency}
-TP: ${trade.tp}
-SL: ${trade.sl}
+TP: ${trade.tp || "None"}
+SL: ${trade.sl || "None"}
 时间: ${new Date().toLocaleString()}`
     : `❌ 交易已取消！
 操作人: ${fromUser}
 类型: ${trade.tradeType}
 币种: ${trade.coin}
 交易金额: ${trade.amount} ${trade.amountCurrency}
-TP: ${trade.tp}
-SL: ${trade.sl}
+TP: ${trade.tp || "None"}
+SL: ${trade.sl || "None"}
 时间: ${new Date().toLocaleString()}`;
 
   // 更新消息并移除按钮
@@ -128,6 +119,9 @@ SL: ${trade.sl}
   });
 
   await bot.answerCallbackQuery(callbackQuery.id, { text: "操作已记录" });
+
+  // 删除缓存
+  delete trades[tradeId];
 });
 
 // /trade 接口，前端调用
