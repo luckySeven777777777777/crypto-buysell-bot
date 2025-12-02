@@ -6,64 +6,48 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 8080;
 
-// ⚠️ 配置你的 Token、群ID和私人ID
 const BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const GROUP_ID = -1003262870745;
 const PRIVATE_ID = 6062973135;
 
-// 多管理员（可填用户名）
-const ADMINS = ["@YourUsername"];
-
-// 按钮生成
+// 生成内联键盘
 function createInlineKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: "✔ 成功交易", callback_data: "trade_success" },
+        { text: "✔️ 成功交易", callback_data: "trade_success" },
         { text: "❌ 取消交易", callback_data: "trade_cancel" }
       ]
     ]
   };
 }
 
-// 发送消息到群和个人
+// 发送消息到群和私人
 async function sendTradeMessage(trade) {
-  const msg = `
-📣 *新交易请求*
+  const msg = `📣 *新交易请求*
 类型: *${trade.tradeType.toUpperCase()}*
 币种: *${trade.coin}*
 数量: *${trade.amount} ${trade.amountCurrency}*
 TP: *${trade.tp || "无"}*
 SL: *${trade.sl || "无"}*
-时间: ${new Date().toLocaleString()}
-`;
-  // 群消息
-  await fetch(`${TELEGRAM_API}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: GROUP_ID,
-      text: msg,
-      parse_mode: "Markdown",
-      reply_markup: createInlineKeyboard()
-    })
-  });
+时间: ${new Date().toLocaleString()}`;
 
-  // 私人消息
-  await fetch(`${TELEGRAM_API}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: PRIVATE_ID,
-      text: msg,
-      parse_mode: "Markdown",
-      reply_markup: createInlineKeyboard()
-    })
-  });
+  for (const chat_id of [GROUP_ID, PRIVATE_ID]) {
+    await fetch(`${TELEGRAM_API}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id,
+        text: msg,
+        parse_mode: "Markdown",
+        reply_markup: createInlineKeyboard()
+      })
+    });
+  }
 }
 
-// Webhook 处理
+// Webhook
 app.post("/webhook", async (req, res) => {
   try {
     const update = req.body;
@@ -78,12 +62,11 @@ app.post("/webhook", async (req, res) => {
 
       let textUpdate = "";
       if (update.callback_query.data === "trade_success") {
-        textUpdate = `✔ 交易已成功！\n操作人: ${from_user}\n时间: ${new Date().toLocaleString()}`;
+        textUpdate = `✔️ 交易已成功！\n操作人: ${from_user}\n时间: ${new Date().toLocaleString()}`;
       } else if (update.callback_query.data === "trade_cancel") {
         textUpdate = `❌ 交易已取消！\n操作人: ${from_user}\n时间: ${new Date().toLocaleString()}`;
       }
 
-      // 编辑原消息
       await fetch(`${TELEGRAM_API}/editMessageText`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -95,7 +78,6 @@ app.post("/webhook", async (req, res) => {
         })
       });
 
-      // 回复按钮点击（防止 Telegram loading）
       await fetch(`${TELEGRAM_API}/answerCallbackQuery`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -105,7 +87,7 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // 处理普通 trade POST 请求
+    // 普通 trade POST 请求
     if (update.tradeType) {
       await sendTradeMessage(update);
       return res.sendStatus(200);
