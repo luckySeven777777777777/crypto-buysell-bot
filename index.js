@@ -2,17 +2,15 @@ import express from "express";
 import TelegramBot from "node-telegram-bot-api";
 import fs from "fs";
 
-// =====================================
-// 配置
-// =====================================
 const BOT_TOKEN = "你的BOT_TOKEN";
 
+// 私人 + 群
 const ADMINS = [
-    6062973135,        // 私人
+    6062973135,        // 私聊
     -1003262870745     // 群
 ];
 
-// 日志文件
+// 日志
 const LOG_FILE = "logs.txt";
 function writeLog(text) {
     fs.appendFileSync(LOG_FILE, `[${new Date().toLocaleString()}] ${text}\n`);
@@ -21,18 +19,14 @@ function writeLog(text) {
 // Telegram polling
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// =====================================
 // 数据结构
-// =====================================
 let ORDER_ID = 10001;
 let pendingMessages = []; 
 // { chatId, messageId, orderId }
 let orderLocks = {}; 
 // { orderId: true/false }
 
-// =====================================
-// Express 后端
-// =====================================
+// Express
 const app = express();
 app.use(express.json());
 
@@ -52,8 +46,6 @@ app.post("/trade", async (req, res) => {
 🛑 SL: *${data.sl}*
 ⏰ Time: ${data.time}
 ━━━━━━━━━━━━━━`;
-
-    pendingMessages = pendingMessages.filter(m => m.orderId !== orderId); // 清理旧订单
 
     for (const adminId of ADMINS) {
         try {
@@ -83,16 +75,14 @@ app.post("/trade", async (req, res) => {
     res.json({ ok: true });
 });
 
-// =====================================
 // 按钮回调处理
-// =====================================
 bot.on("callback_query", async (query) => {
     const [action, orderId] = query.data.split("_");
     const operator = query.from.first_name || "Admin";
 
     // 单订单锁
     if (orderLocks[orderId]) {
-        bot.answerCallbackQuery(query.id, {
+        await bot.answerCallbackQuery(query.id, {
             text: "此订单已处理过！",
             show_alert: true
         });
@@ -100,12 +90,11 @@ bot.on("callback_query", async (query) => {
     }
     orderLocks[orderId] = true;
 
-    // 生成最终消息
     const finalMessage = action === "ok"
         ? `✔ *交易已确认成功*\n🆔 Order ID: ${orderId}\n操作者: ${operator}`
         : `✖ *交易已取消*\n🆔 Order ID: ${orderId}\n操作者: ${operator}`;
 
-    // 1️⃣ 删除按钮
+    // 删除所有订单按钮
     for (const msg of pendingMessages.filter(m => m.orderId == orderId)) {
         try {
             await bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
@@ -115,7 +104,7 @@ bot.on("callback_query", async (query) => {
         } catch (e) {}
     }
 
-    // 2️⃣ 给所有管理员（私人+群）发送最终消息
+    // 给所有管理员（私人 + 群）发送处理结果
     for (const adminId of ADMINS) {
         try {
             await bot.sendMessage(adminId, finalMessage, { parse_mode: "Markdown" });
@@ -123,10 +112,9 @@ bot.on("callback_query", async (query) => {
     }
 
     writeLog(`订单处理：#${orderId} → ${action} by ${operator}`);
-    bot.answerCallbackQuery(query.id);
+    await bot.answerCallbackQuery(query.id); // ⚠️ 一定要答复，否则按钮会失效
 });
 
-// =====================================
 app.listen(3000, () => {
     console.log("🚀 Server running on port 3000");
 });
