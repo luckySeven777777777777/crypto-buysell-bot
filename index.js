@@ -13,7 +13,7 @@ app.use(express.static("public"));
 
 const PORT = process.env.PORT || 8080;
 
-// ⚠️ 配置你的 Token、群ID和私人ID
+// 配置 Token、群ID、私人ID
 const BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
 const GROUP_ID = -1003262870745;
 const PRIVATE_ID = 6062973135;
@@ -24,29 +24,29 @@ const ADMIN_IDS = [PRIVATE_ID];
 // 初始化轮询 Bot
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// 内存存储交易信息
-const trades = {}; // key: tradeId, value: trade对象
+// 内存存储交易
+const trades = {};
 
-// 创建按钮，只传 tradeId
+// 创建按钮
 function createInlineKeyboard(tradeId) {
   return {
     inline_keyboard: [
       [
-        { text: "✔ 成功交易", callback_data: `trade_success_${tradeId}` },
-        { text: "✖ 取消交易", callback_data: `trade_cancel_${tradeId}` }
+        { text: "✔ 成功交易", callback_data: `trade_success|${tradeId}` },
+        { text: "✖ 取消交易", callback_data: `trade_cancel|${tradeId}` }
       ]
     ]
   };
 }
 
-// 发送消息到群和个人
+// 发送消息到群和私人
 async function sendTradeMessage(trade) {
   const tradeId = uuidv4();
-  trades[tradeId] = trade; // 保存到内存
+  trades[tradeId] = trade;
 
   const msg = `
 📣 *New Trade Request*
-Type: *${trade.tradeType.toUpperCase()}*
+Type: *${trade.tradeType}*
 Coin: *${trade.coin}*
 Amount: *${trade.amount} ${trade.amountCurrency}*
 TP: *${trade.tp || "None"}*
@@ -70,21 +70,16 @@ Time: ${new Date().toLocaleString()}
 // 处理按钮点击
 bot.on("callback_query", async (callbackQuery) => {
   const userId = callbackQuery.from.id;
-
-  if (!ADMIN_IDS.includes(userId)) {
-    await bot.answerCallbackQuery(callbackQuery.id, {
-      text: "❌ 你没有权限操作此按钮",
-      show_alert: true,
-    });
-    return;
-  }
-
   const chatId = callbackQuery.message.chat.id;
   const messageId = callbackQuery.message.message_id;
   const fromUser = callbackQuery.from.username || callbackQuery.from.first_name;
 
-  // callback_data 格式: action_tradeId
-  const [action, tradeId] = callbackQuery.data.split("_");
+  if (!ADMIN_IDS.includes(userId)) {
+    await bot.answerCallbackQuery(callbackQuery.id, { text: "❌ 你没有权限操作此按钮", show_alert: true });
+    return;
+  }
+
+  const [action, tradeId] = callbackQuery.data.split("|");
   const trade = trades[tradeId];
 
   if (!trade) {
@@ -110,21 +105,18 @@ TP: ${trade.tp || "None"}
 SL: ${trade.sl || "None"}
 时间: ${new Date().toLocaleString()}`;
 
-  // 更新消息并移除按钮
   await bot.editMessageText(textUpdate, {
     chat_id: chatId,
     message_id: messageId,
     parse_mode: "Markdown",
-    reply_markup: { inline_keyboard: [] },
+    reply_markup: { inline_keyboard: [] }, // 移除按钮
   });
 
   await bot.answerCallbackQuery(callbackQuery.id, { text: "操作已记录" });
-
-  // 删除缓存
   delete trades[tradeId];
 });
 
-// /trade 接口，前端调用
+// /trade 接口
 app.post("/trade", async (req, res) => {
   try {
     const trade = req.body;
