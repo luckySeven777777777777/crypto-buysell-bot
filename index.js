@@ -67,18 +67,18 @@ bot.on("callback_query", async (callbackQuery) => {
 
   const originalText = callbackQuery.message.text;
 
-  // 提取币种与金额
-  const coinMatch = originalText.match(/Coin:\s\*(.+?)\*/);
-  const amountMatch = originalText.match(/Amount:\s\*(.+?)\*/);
+  // 宽松匹配：兼容带星号和不带星号
+  const coinMatch = originalText.match(/Coin:\s\*?(.+?)\*?\n/);
+  const amountMatch = originalText.match(/Amount:\s\*?(.+?)\*?\n/);
 
-  const coin = coinMatch ? coinMatch[1] : "Unknown";
-  const amount = amountMatch ? amountMatch[1] : "Unknown";
+  const coin = coinMatch ? coinMatch[1].trim() : "Unknown";
+  const amount = amountMatch ? amountMatch[1].trim() : "Unknown";
 
   const fromUser = callbackQuery.from.username
     ? `@${callbackQuery.from.username}`
     : callbackQuery.from.first_name;
 
-  // 🔒 防止同一用户重复操作
+  // 防止重复点击
   const already = actionMap.get(messageId);
   if (already && already !== userId) {
     return bot.answerCallbackQuery(callbackQuery.id, {
@@ -93,7 +93,6 @@ bot.on("callback_query", async (callbackQuery) => {
     });
   }
 
-  // 记录此消息已被该用户处理
   actionMap.set(messageId, userId);
 
   let textUpdate = "";
@@ -114,12 +113,12 @@ bot.on("callback_query", async (callbackQuery) => {
 时间: ${new Date().toLocaleString()}`;
   }
 
-  // ✔️ 自动删除按钮 → 使用 reply_markup: { inline_keyboard: [] }
+  // 删除按钮
   await bot.editMessageText(textUpdate, {
     chat_id: chatId,
     message_id: messageId,
     parse_mode: "Markdown",
-    reply_markup: { inline_keyboard: [] }, // 移除按钮
+    reply_markup: { inline_keyboard: [] },
   });
 
   await bot.answerCallbackQuery(callbackQuery.id);
