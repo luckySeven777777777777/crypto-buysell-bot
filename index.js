@@ -23,15 +23,19 @@ const ADMIN_IDS = [PRIVATE_ID];
 // 初始化轮询 Bot
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// Base64 编码交易信息
+// URL-safe Base64 编码交易信息
 function encodeTrade(trade) {
-  const str = `${trade.tradeType}|${trade.coin}|${trade.amount}|${trade.amountCurrency}|${trade.tp || "None"}|${trade.sl || "None"}`;
-  return Buffer.from(str).toString("base64");
+  let str = `${trade.tradeType}|${trade.coin}|${trade.amount}|${trade.amountCurrency}|${trade.tp || "None"}|${trade.sl || "None"}`;
+  let encoded = Buffer.from(str).toString("base64");
+  encoded = encoded.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return encoded;
 }
 
-// Base64 解码交易信息
-function decodeTrade(data) {
-  const str = Buffer.from(data, "base64").toString("utf-8");
+// URL-safe Base64 解码交易信息
+function decodeTrade(encoded) {
+  let str = encoded.replace(/-/g, "+").replace(/_/g, "/");
+  while (str.length % 4) str += "=";
+  str = Buffer.from(str, "base64").toString("utf-8");
   const [tradeType, coin, amount, amountCurrency, tp, sl] = str.split("|");
   return { tradeType, coin, amount, amountCurrency, tp, sl };
 }
@@ -90,10 +94,10 @@ bot.on("callback_query", async (callbackQuery) => {
   const messageId = callbackQuery.message.message_id;
   const fromUser = callbackQuery.from.username || callbackQuery.from.first_name;
 
-  // callback_data 格式: action_base64EncodedTrade
+  // callback_data 格式: action_encodedTrade
   const parts = callbackQuery.data.split("_");
   const action = parts[0]; // trade_success 或 trade_cancel
-  const encodedData = parts.slice(1).join("_"); // base64 编码交易信息
+  const encodedData = parts.slice(1).join("_"); // URL-safe Base64 编码
 
   const trade = decodeTrade(encodedData);
 
@@ -115,11 +119,12 @@ TP: ${trade.tp}
 SL: ${trade.sl}
 时间: ${new Date().toLocaleString()}`;
 
+  // 更新消息并移除按钮
   await bot.editMessageText(textUpdate, {
     chat_id: chatId,
     message_id: messageId,
     parse_mode: "Markdown",
-    reply_markup: { inline_keyboard: [] }, // 移除按钮
+    reply_markup: { inline_keyboard: [] },
   });
 
   await bot.answerCallbackQuery(callbackQuery.id, { text: "操作已记录" });
