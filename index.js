@@ -79,28 +79,48 @@ bot.on("callback_query", async (callbackQuery) => {
     ? `@${callbackQuery.from.username}`
     : callbackQuery.from.first_name;
 
-  // 提取原始交易信息（金额 + 币种）
+  // 提取原始交易信息
   const originalText = callbackQuery.message.text;
+
+  const typeMatch = originalText.match(/Type: \*(.+?)\*/);
+  const coinMatch = originalText.match(/Coin: \*(.+?)\*/);
   const amountMatch = originalText.match(/Amount: \*(.+?)\*/);
+  const tpMatch = originalText.match(/TP: \*(.+?)\*/);
+  const slMatch = originalText.match(/SL: \*(.+?)\*/);
+
+  const typeText = typeMatch ? typeMatch[1] : "未知";
+  const coinText = coinMatch ? coinMatch[1] : "未知";
   const amountText = amountMatch ? amountMatch[1] : "未知";
+  const tpText = tpMatch ? tpMatch[1] : "None";
+  const slText = slMatch ? slMatch[1] : "None";
 
   let textUpdate = "";
   if (callbackQuery.data === "trade_success") {
     textUpdate = `✔ 交易已成功！
 操作人: ${fromUser}
+类型: ${typeText}
+币种: ${coinText}
 交易金额: ${amountText}
+TP: ${tpText}
+SL: ${slText}
 时间: ${new Date().toLocaleString()}`;
   } else if (callbackQuery.data === "trade_cancel") {
     textUpdate = `❌ 交易已取消！
 操作人: ${fromUser}
+类型: ${typeText}
+币种: ${coinText}
 交易金额: ${amountText}
+TP: ${tpText}
+SL: ${slText}
 时间: ${new Date().toLocaleString()}`;
   }
 
+  // 更新消息并移除按钮
   await bot.editMessageText(textUpdate, {
     chat_id: chatId,
     message_id: messageId,
     parse_mode: "Markdown",
+    reply_markup: { inline_keyboard: [] }, // 移除按钮
   });
 
   await bot.answerCallbackQuery(callbackQuery.id, { text: "操作已记录" });
