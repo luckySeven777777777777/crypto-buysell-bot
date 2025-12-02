@@ -1,34 +1,21 @@
+// server.js
 import express from "express";
 import TelegramBot from "node-telegram-bot-api";
-import path from "path";
-import { fileURLToPath } from "url";
 import { v4 as uuidv4 } from "uuid";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json());
-app.use(express.static("public"));
 
-const PORT = process.env.PORT || 8080;
-
-// 配置 Token、群ID、私人ID
 const BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
 const GROUP_ID = -1003262870745;
 const PRIVATE_ID = 6062973135;
-
-// 管理员ID列表
 const ADMIN_IDS = [PRIVATE_ID];
 
-// 初始化轮询 Bot
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
-
-// 内存存储交易
-const trades = {};
+const trades = {}; // 内存存储交易
 
 // 创建按钮
-function createInlineKeyboard(tradeId) {
+function createButtons(tradeId) {
   return {
     inline_keyboard: [
       [
@@ -39,57 +26,46 @@ function createInlineKeyboard(tradeId) {
   };
 }
 
-// 发送消息到群和私人
-async function sendTradeMessage(trade) {
+// 发送交易消息
+async function sendTrade(trade) {
   const tradeId = uuidv4();
   trades[tradeId] = trade;
 
   const msg = `
 📣 *New Trade Request*
-Type: *${trade.tradeType}*
-Coin: *${trade.coin}*
-Amount: *${trade.amount} ${trade.amountCurrency}*
+类型: *${trade.tradeType}*
+币种: *${trade.coin}*
+交易金额: *${trade.amount} ${trade.amountCurrency}*
 TP: *${trade.tp || "None"}*
 SL: *${trade.sl || "None"}*
-Time: ${new Date().toLocaleString()}
+时间: ${new Date().toLocaleString()}
 `;
 
-  const keyboard = createInlineKeyboard(tradeId);
+  const keyboard = createButtons(tradeId);
 
-  await bot.sendMessage(GROUP_ID, msg, {
-    parse_mode: "Markdown",
-    reply_markup: keyboard,
-  });
-
-  await bot.sendMessage(PRIVATE_ID, msg, {
-    parse_mode: "Markdown",
-    reply_markup: keyboard,
-  });
+  await bot.sendMessage(GROUP_ID, msg, { parse_mode: "Markdown", reply_markup: keyboard });
+  await bot.sendMessage(PRIVATE_ID, msg, { parse_mode: "Markdown", reply_markup: keyboard });
 }
 
 // 处理按钮点击
-bot.on("callback_query", async (callbackQuery) => {
-  const userId = callbackQuery.from.id;
-  const chatId = callbackQuery.message.chat.id;
-  const messageId = callbackQuery.message.message_id;
-  const fromUser = callbackQuery.from.username || callbackQuery.from.first_name;
-
+bot.on("callback_query", async (query) => {
+  const userId = query.from.id;
   if (!ADMIN_IDS.includes(userId)) {
-    await bot.answerCallbackQuery(callbackQuery.id, { text: "❌ 你没有权限操作此按钮", show_alert: true });
+    await bot.answerCallbackQuery(query.id, { text: "❌ 无权限", show_alert: true });
     return;
   }
 
-  const [action, tradeId] = callbackQuery.data.split("|");
+  const [action, tradeId] = query.data.split("|");
   const trade = trades[tradeId];
-
   if (!trade) {
-    await bot.answerCallbackQuery(callbackQuery.id, { text: "❌ 交易信息不存在", show_alert: true });
+    await bot.answerCallbackQuery(query.id, { text: "❌ 交易不存在", show_alert: true });
     return;
   }
 
-  const textUpdate = action === "trade_success"
+  const user = query.from.username || query.from.first_name;
+  const text = action === "trade_success"
     ? `✔ 交易已成功！
-操作人: ${fromUser}
+操作人: ${user}
 类型: ${trade.tradeType}
 币种: ${trade.coin}
 交易金额: ${trade.amount} ${trade.amountCurrency}
@@ -97,7 +73,7 @@ TP: ${trade.tp || "None"}
 SL: ${trade.sl || "None"}
 时间: ${new Date().toLocaleString()}`
     : `❌ 交易已取消！
-操作人: ${fromUser}
+操作人: ${user}
 类型: ${trade.tradeType}
 币种: ${trade.coin}
 交易金额: ${trade.amount} ${trade.amountCurrency}
@@ -105,35 +81,25 @@ TP: ${trade.tp || "None"}
 SL: ${trade.sl || "None"}
 时间: ${new Date().toLocaleString()}`;
 
-  await bot.editMessageText(textUpdate, {
-    chat_id: chatId,
-    message_id: messageId,
+  await bot.editMessageText(text, {
+    chat_id: query.message.chat.id,
+    message_id: query.message.message_id,
     parse_mode: "Markdown",
-    reply_markup: { inline_keyboard: [] }, // 移除按钮
+    reply_markup: { inline_keyboard: [] },
   });
 
-  await bot.answerCallbackQuery(callbackQuery.id, { text: "操作已记录" });
+  await bot.answerCallbackQuery(query.id, { text: "操作已记录" });
   delete trades[tradeId];
 });
 
-// /trade 接口
+// 提交交易接口
 app.post("/trade", async (req, res) => {
-  try {
-    const trade = req.body;
-    if (!trade.tradeType || !trade.coin || !trade.amount || !trade.amountCurrency) {
-      return res.status(400).send("Missing trade parameters");
-    }
-    await sendTradeMessage(trade);
-    res.status(200).send("Trade sent successfully");
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Internal Server Error");
+  const trade = req.body;
+  if (!trade.tradeType || !trade.coin || !trade.amount || !trade.amountCurrency) {
+    return res.status(400).send("缺少参数");
   }
+  await sendTrade(trade);
+  res.status(200).send("提交成功");
 });
 
-// 测试路由
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public/index.html"));
-});
-
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(8080, () => console.log("服务器已启动，端口 8080"));
