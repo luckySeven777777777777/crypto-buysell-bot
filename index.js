@@ -4,10 +4,10 @@ import TelegramBot from "node-telegram-bot-api";
 // ==========================
 // 配置
 // ==========================
-const BOT_TOKEN = "你的BOT_TOKEN";
+const BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
 const ADMINS = [
-    6062973135,        // 私聊
-    -1003262870745     // 群
+    6062973135,        // 私人
+    -1003262870745     // 群（超级群）
 ];
 
 // ==========================
@@ -15,10 +15,12 @@ const ADMINS = [
 // ==========================
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// 订单数据
+// ==========================
+// 数据结构
+// ==========================
 let ORDER_ID = 10001;
 let pendingOrders = {}; 
-// 结构： { orderId: { messages: [{chatId, messageId}], locked: false } }
+// 结构： { orderId: { messages: [{chatId,messageId}], locked: false } }
 
 // ==========================
 // Express 后端
@@ -30,11 +32,7 @@ app.post("/trade", async (req, res) => {
     const data = req.body;
     const orderId = ORDER_ID++;
 
-    // 创建订单结构
-    pendingOrders[orderId] = {
-        messages: [],
-        locked: false
-    };
+    pendingOrders[orderId] = { messages: [], locked: false };
 
     const text = 
 `📣 *新订单*
@@ -66,7 +64,7 @@ app.post("/trade", async (req, res) => {
                 messageId: sent.message_id
             });
         } catch (e) {
-            console.log("发送失败:", e.message);
+            console.log(`发送到 ${chatId} 失败:`, e.response?.description || e.message);
         }
     }
 
@@ -94,12 +92,11 @@ bot.on("callback_query", async (query) => {
 
     order.locked = true; // 锁定订单，禁止重复点击
 
-    // 最终消息
     const finalText = action === "ok"
         ? `✔ *交易已确认成功*\n🆔 Order ID: ${orderId}\n操作者: ${operator}`
         : `✖ *交易已取消*\n🆔 Order ID: ${orderId}\n操作者: ${operator}`;
 
-    // 1️⃣ 删除订单按钮或显示已操作
+    // 1️⃣ 删除按钮（点击后自动消失）
     for (const msg of order.messages) {
         try {
             await bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
@@ -109,18 +106,15 @@ bot.on("callback_query", async (query) => {
         } catch (e) {}
     }
 
-    // 2️⃣ 广播处理结果给私人 + 群
+    // 2️⃣ 同步发送最终消息给私人 + 群
     for (const chatId of ADMINS) {
         try {
             await bot.sendMessage(chatId, finalText, { parse_mode: "Markdown" });
         } catch (e) {}
     }
 
-    // 必须答复 callback_query，否则按钮无法点击
-    await bot.answerCallbackQuery(query.id);
+    await bot.answerCallbackQuery(query.id); // ✅ 必须答复 callback_query，否则按钮会灰掉
 });
 
 // ==========================
-app.listen(3000, () => {
-    console.log("🚀 Server running on port 3000");
-});
+app.listen(3000, () => console.log("🚀 Server running on port 3000"));
