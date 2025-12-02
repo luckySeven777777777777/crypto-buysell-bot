@@ -10,11 +10,13 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 8080;
 
-// 从环境变量读取 Telegram 配置
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const GROUP_ID = Number(process.env.GROUP_ID);       // 转为数字
-const PRIVATE_ID = Number(process.env.PRIVATE_ID);   // 转为数字
-const ADMIN_IDS = [PRIVATE_ID];
+// Telegram 配置（已直接填写你的信息）
+const BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
+const GROUP_ID = -1003262870745;
+const PRIVATE_ID = 6062973135;
+
+// 多管理员列表，可加更多 ID
+const ADMIN_IDS = [PRIVATE_ID /*, 其他管理员ID */];
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 const trades = {}; // 存储交易信息
@@ -48,6 +50,7 @@ SL: *${trade.sl || "None"}*
 
   const keyboard = createButtons(tradeId);
 
+  // 发送到群和私人
   await bot.sendMessage(GROUP_ID, msg, { parse_mode: "Markdown", reply_markup: keyboard });
   await bot.sendMessage(PRIVATE_ID, msg, { parse_mode: "Markdown", reply_markup: keyboard });
 }
@@ -92,11 +95,11 @@ SL: ${trade.sl}
     chat_id: query.message.chat.id,
     message_id: query.message.message_id,
     parse_mode: "Markdown",
-    reply_markup: { inline_keyboard: [] },
+    reply_markup: { inline_keyboard: [] }, // 按钮消失
   });
 
   await bot.answerCallbackQuery(query.id, { text: "操作已记录" });
-  delete trades[tradeId];
+  delete trades[tradeId]; // 删除交易记录
 });
 
 // 接收前端交易提交
