@@ -8,8 +8,14 @@ app.use(express.json());
 // 配置
 // =============================
 const TELEGRAM_BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
-const TELEGRAM_CHAT_ID = -1003262870745; // 群 ID
 
+// 支持多个群
+const TELEGRAM_CHAT_IDS = [-1003262870745]; // 可以继续加群ID，例如 [-1003262870745, -100xxxxxx]
+
+// 管理员用户名列表（只有这些人可以点击按钮）
+const ADMINS = ["admin1", "admin2"]; // Telegram 用户名，不带 @
+
+// 交易币种及随机汇率
 const coins = ["BTC","ETH","USDT","USDC","BNB","ADA","DOGE","XRP","LTC","DOT","SOL","MATIC"];
 let rate = {};
 coins.forEach(c => rate[c] = Math.random()*0.1+0.01);
@@ -18,27 +24,29 @@ rate["USDT"] = 1;
 // =============================
 // 发送交易消息函数
 // =============================
-function sendTradeMessage(tradeType, coin, amount, amountCurrency, tp, sl) {
+async function sendTradeMessage(tradeType, coin, amount, amountCurrency, tp, sl) {
   const now = new Date().toLocaleString();
   const msg = `📣 *New Trade Request*\nType: *${tradeType.toUpperCase()}*\nCoin: *${coin}*\nAmount: *${amount} ${amountCurrency}*\nTP: *${tp}*\nSL: *${sl}*\nTime: ${now}`;
 
-  fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: TELEGRAM_CHAT_ID,
-      text: msg,
-      parse_mode: "Markdown",
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "✔ 成功交易", callback_data: "trade_success" },
-            { text: "✖ 取消交易", callback_data: "trade_cancel" }
+  for (const chatId of TELEGRAM_CHAT_IDS) {
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: msg,
+        parse_mode: "Markdown",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "✔ 成功交易", callback_data: "trade_success" },
+              { text: "✖ 取消交易", callback_data: "trade_cancel" }
+            ]
           ]
-        ]
-      }
-    })
-  });
+        }
+      })
+    });
+  }
 }
 
 // =============================
@@ -50,28 +58,48 @@ app.post("/webhook", async (req, res) => {
   // 处理按钮点击
   if (data.callback_query) {
     const callbackData = data.callback_query.data;
-    const user = data.callback_query.from.username || data.callback_query.from.first_name;
+    const username = data.callback_query.from.username || data.callback_query.from.first_name;
+    const chatId = data.callback_query.message.chat.id;
+    const messageId = data.callback_query.message.message_id;
     const now = new Date().toLocaleString();
 
-    let text = "";
-    if (callbackData === "trade_success") {
-      text = `✔ 交易已成功！\n操作人: @${user}\n时间: ${now}`;
-    } else if (callbackData === "trade_cancel") {
-      text = `❌ 交易已取消！\n操作人: @${user}\n时间: ${now}`;
-    }
-
-    if (text) {
-      await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    // 检查是否管理员
+    if (!ADMINS.includes(username)) {
+      await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chat_id: TELEGRAM_CHAT_ID,
+          callback_query_id: data.callback_query.id,
+          text: "❌ 你不是管理员，无法操作",
+          show_alert: true
+        })
+      });
+      res.sendStatus(200);
+      return;
+    }
+
+    let text = "";
+    if (callbackData === "trade_success") {
+      text = `✔ 交易已成功！\n操作人: @${username}\n时间: ${now}`;
+    } else if (callbackData === "trade_cancel") {
+      text = `❌ 交易已取消！\n操作人: @${username}\n时间: ${now}`;
+    }
+
+    if (text) {
+      // 编辑原消息同步更新
+      await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          message_id: messageId,
           text: text,
           parse_mode: "Markdown"
         })
       });
     }
 
+    // 回复 Telegram 已收到
     res.sendStatus(200);
     return;
   }
@@ -175,7 +203,7 @@ function sendTrade(){
 
   fetch("/trade", {
     method:"POST",
-    headers: {"Content-Type":"application/json"},
+    headers: {"Content-Type": "application/json"},
     body: JSON.stringify({tradeType, coin, amount, amountCurrency, tp, sl})
   }).then(()=>alert("Trade sent!")).catch(()=>alert("Network error"));
 }
