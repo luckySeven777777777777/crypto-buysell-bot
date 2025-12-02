@@ -1,18 +1,13 @@
 {
-  "name": "nexbit-railway-api",
+  "name": "crypto-trade-bot",
   "version": "1.0.0",
-  "main": "server.js",
+  "main": "index.js",
+  "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "node index.js"
   },
   "dependencies": {
-    "body-parser": "^1.20.2",
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "pg": "^8.11.0"
-  },
-  "engines": {
-    "node": "18.x"
+    "node-telegram-bot-api": "^0.61.0",
+    "express": "^4.18.2"
   }
 }
