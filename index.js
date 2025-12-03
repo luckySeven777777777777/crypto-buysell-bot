@@ -1,142 +1,181 @@
+//---------------------------------------------
+// 读取环境变量
+//---------------------------------------------
 import TelegramBot from "node-telegram-bot-api";
 import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
 
-// -------------------------------
-// 读取环境变量
-// -------------------------------
-const token = process.env.BOT_TOKEN;
-const GROUP_ID = process.env.GROUP_ID;      // 群ID
-const OWNER_ID = process.env.PRIVATE_ID;    // 你的私人ID
-
-// 你要求添加的多个管理员
+// 环境变量
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const GROUP_ID = process.env.GROUP_ID;              // 群ID
+const OWNER_ID = process.env.PRIVATE_ID;            // 主管理员（你）
 const ADMINS = [
-  OWNER_ID,        // 原管理员
-  "6615925197",    // 新管理员
-  "7416199637"     // 新管理员
+    OWNER_ID,
+    "6615925197",   // 新管理员 1
+    "7416199637"    // 新管理员 2
 ];
 
-// 创建机器人（使用 polling 模式）
-const bot = new TelegramBot(token, { polling: true });
-
-// -------------------------------
-// 判断是否管理员
-// -------------------------------
-function isAdmin(userId) {
-  return ADMINS.includes(String(userId));
-}
-
-// -------------------------------
-// 发送订单到群和管理员
-// -------------------------------
-function broadcastToAll(text, options = {}) {
-  bot.sendMessage(GROUP_ID, text, options).catch(() => {});
-  ADMINS.forEach((adminId) => {
-    bot.sendMessage(adminId, text, options).catch(() => {});
-  });
-}
-
-// -------------------------------
-// 生成操作按钮
-// -------------------------------
-function actionButtons(orderId) {
-  return {
-    reply_markup: {
-      inline_keyboard: [
-        [
-          { text: "✅ 确认到账", callback_data: `done_${orderId}` },
-          { text: "❌ 取消订单", callback_data: `cancel_${orderId}` }
-        ],
-        [
-          { text: "🔒 锁单", callback_data: `lock_${orderId}` },
-          { text: "🔓 解锁单", callback_data: `unlock_${orderId}` }
-        ]
-      ]
-    }
-  };
-}
-
-// -------------------------------
-// 接收用户发来的消息（模拟用户下单）
-// -------------------------------
-bot.on("message", async (msg) => {
-  const chatId = msg.chat.id;
-  const text = msg.text;
-  const userId = msg.from.id;
-
-  // 获取群ID的指令（仅调试使用）
-  if (text === "/id") {
-    bot.sendMessage(chatId, `📌 当前会话 ID：${chatId}`);
-    return;
-  }
-
-  // 忽略机器人自己的消息
-  if (msg.from.is_bot) return;
-
-  // 假设用户发送：buy 100 usdt
-  if (text.startsWith("buy")) {
-    const parts = text.split(" ");
-    const amount = parts[1] ?? "未知金额";
-    const coin = parts[2] ?? "USDT";
-
-    const orderId = Date.now(); // 生成订单号
-
-    const message = `
-🆕 新订单创建  
-订单号：${orderId}  
-币种：${coin}  
-金额：${amount}  
-用户：${msg.from.first_name}
-    `;
-
-    /// 推送到群 + 所有管理员
-    broadcastToAll(message, actionButtons(orderId));
-  }
+//---------------------------------------------
+// 创建机器人
+//---------------------------------------------
+const bot = new TelegramBot(BOT_TOKEN, {
+    polling: true
 });
 
-// -------------------------------
-// 按钮事件处理
-// -------------------------------
-bot.on("callback_query", (query) => {
-  const userId = query.from.id;
-  const messageId = query.message.message_id;
-  const text = query.data;
+//---------------------------------------------
+// 建立 Express
+//---------------------------------------------
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-  if (!isAdmin(userId)) {
-    bot.answerCallbackQuery(query.id, { text: "⛔ 你没有权限操作" });
-    return;
-  }
-
-  const [action, orderId] = text.split("_");
-
-  let response = "";
-
-  switch (action) {
-    case "done":
-      response = `✅ 订单已确认到账\n订单号：${orderId}`;
-      break;
-
-    case "cancel":
-      response = `❌ 订单已取消\n订单号：${orderId}`;
-      break;
-
-    case "lock":
-      response = `🔒 该订单已被锁定\n订单号：${orderId}`;
-      break;
-
-    case "unlock":
-      response = `🔓 订单已解锁\n订单号：${orderId}`;
-      break;
-  }
-
-  // 同时推送群 + 管理员
-  broadcastToAll(response);
-
-  bot.answerCallbackQuery(query.id, { text: "操作成功" });
-});
-
-// -------------------------------
-// 保持 Express 运行 (Railway 需要)
-// -------------------------------
 const app = express();
-app.get("/", (req, res) => res.send("Bot is running"));
-app.listen(process.env.PORT || 3000);
+app.use(express.json());
+app.use(express.static("public"));
+app.get("/", (req, res) => res.sendFile("index.html", { root: __dirname }));
+
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => console.log("Server running on", PORT));
+
+
+//-------------------------------------------------------
+// 工具函数：发送订单消息到 群 + 私聊
+//-------------------------------------------------------
+function sendOrderToAll(text, keyboard) {
+    // 1. 群
+    bot.sendMessage(GROUP_ID, text, {
+        parse_mode: "Markdown",
+        reply_markup: keyboard
+    });
+
+    // 2. 每个管理员私聊
+    ADMINS.forEach(admin => {
+        bot.sendMessage(admin, text, {
+            parse_mode: "Markdown",
+            reply_markup: keyboard
+        });
+    });
+}
+
+
+//-------------------------------------------------------
+// 检查权限
+//-------------------------------------------------------
+function isAdmin(id) {
+    return ADMINS.includes(String(id));
+}
+
+
+//-------------------------------------------------------
+// 新订单（来自前端）
+//-------------------------------------------------------
+app.post("/trade", async (req, res) => {
+    const data = req.body;
+
+    const msg =
+`📣 *New Trade Request*
+-----------------------
+📌 *Type:* ${data.type}
+📌 *Coin:* ${data.coin}
+📌 *Amount:* ${data.amount} ${data.currency}
+📌 *TP:* ${data.tp}
+📌 *SL:* ${data.sl}
+⏰ *Time:* ${data.time}
+-----------------------`;
+
+    const keyboard = {
+        inline_keyboard: [
+            [
+                { text: "🔒 锁单", callback_data: "lock" },
+                { text: "🔓 解锁单", callback_data: "unlock" }
+            ],
+            [
+                { text: "✅ 到账确认", callback_data: "confirm" },
+                { text: "❌ 取消订单", callback_data: "cancel" }
+            ]
+        ]
+    };
+
+    sendOrderToAll(msg, keyboard);
+
+    res.json({ ok: true });
+});
+
+
+//-------------------------------------------------------
+// Buy 指令自动生成订单： /buy BTC 100 USDT
+//-------------------------------------------------------
+bot.onText(/\/buy (.+) (.+) (.+)/, (msg, match) => {
+    if (!isAdmin(msg.from.id)) return;
+
+    const coin = match[1];
+    const amount = match[2];
+    const unit = match[3];
+
+    const time = new Date().toLocaleString();
+
+    const text =
+`📣 *New Trade Request*
+-----------------------
+📌 *Type:* BUY
+📌 *Coin:* ${coin}
+📌 *Amount:* ${amount} ${unit}
+📌 *TP:* None
+📌 *SL:* None
+⏰ *Time:* ${time}
+-----------------------`;
+
+    const keyboard = {
+        inline_keyboard: [
+            [
+                { text: "🔒 锁单", callback_data: "lock" },
+                { text: "🔓 解锁单", callback_data: "unlock" }
+            ],
+            [
+                { text: "✅ 到账确认", callback_data: "confirm" },
+                { text: "❌ 取消订单", callback_data: "cancel" }
+            ]
+        ]
+    };
+
+    sendOrderToAll(text, keyboard);
+});
+
+
+//-------------------------------------------------------
+// 按键处理：锁单 / 解锁单 / 到账 / 取消订单
+//-------------------------------------------------------
+bot.on("callback_query", async (query) => {
+    const admin = query.from.id;
+
+    if (!isAdmin(admin)) {
+        return bot.answerCallbackQuery(query.id, { text: "❌ 你无权操作此订单" });
+    }
+
+    let actionText = "";
+
+    if (query.data === "lock") actionText = "🔒 *订单已锁定*";
+    if (query.data === "unlock") actionText = "🔓 *订单已解锁*";
+    if (query.data === "confirm") actionText = "✅ *已确认到账*";
+    if (query.data === "cancel") actionText = "❌ *订单已取消*";
+
+    const notifyText =
+`${actionText}
+👤 操作管理员：${query.from.first_name}
+⏰ 时间：${new Date().toLocaleString()}`;
+
+    // 广播：群 + 所有管理员
+    sendOrderToAll(notifyText);
+
+    bot.answerCallbackQuery(query.id, { text: "已执行" });
+});
+
+
+//-------------------------------------------------------
+// 辅助命令：/id 显示当前聊天ID（群ID）
+//-------------------------------------------------------
+bot.onText(/\/id/, (msg) => {
+    bot.sendMessage(msg.chat.id, `📌 本聊天的 ID 是： *${msg.chat.id}*`, {
+        parse_mode: "Markdown"
+    });
+});
