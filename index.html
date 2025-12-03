@@ -79,7 +79,7 @@ input, select {
 // Telegram 配置
 // =============================
 const TELEGRAM_BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
-const TELEGRAM_CHAT_ID = -1003262870745; 
+const TELEGRAM_CHAT_ID = -1003262870745;
 
 const coins = ["BTC","ETH","USDT","USDC","BNB","ADA","DOGE","XRP","LTC","DOT","SOL","MATIC"];
 let rate = {};
@@ -141,9 +141,13 @@ function sendTrade(){
   if(!amount){ alert("Enter amount"); return; }
 
   const now = new Date().toLocaleString();
+  
+  // ⭐ 自动生成交易编号
+  const tradeId = Math.floor(100000 + Math.random() * 900000);
 
   const msg =
 `📣 *New Trade Request*
+ID: *#${tradeId}*
 Type: *${tradeType.toUpperCase()}*
 Coin: *${coin}*
 Amount: *${amount} ${amountCurrency}*
@@ -176,4 +180,3 @@ Time: ${now}`;
 </script>
 </body>
 </html>
-
