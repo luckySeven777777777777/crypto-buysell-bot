@@ -13,7 +13,7 @@ h2 { text-align:center; margin-bottom:20px; }
 .buy-btn { border-color: #2ecc71; color:#2ecc71; }
 .sell-btn { border-color: #e67e22; color:#e67e22; }
 
-/* ⭐ 输入框 & 下拉框统一透明背景，白色文字 */
+/* ⭐ 输入框 & 下拉框透明背景、白色文字 */
 input, select {
   width:100%;
   padding:10px;
@@ -21,9 +21,9 @@ input, select {
   border-radius:8px;
   border:1px solid #ccc;
 
-  background: transparent !important; /* 透明背景 */
-  color:white !important;            /* 白色字体 */
-  caret-color:white;                  /* 输入光标白色 */
+  background: transparent !important;
+  color:white !important;
+  caret-color:white;
 }
 
 /* 按钮 */
@@ -75,22 +75,19 @@ input, select {
 </div>
 
 <script>
-// =============================
-// Telegram 配置
-// =============================
+/* =============================
+   Telegram 配置
+============================= */
+
 const TELEGRAM_BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
-
-// 你的私人 ID
 const PRIVATE_ID = 6062973135;
+const GROUP_ID   = -1003262870745;
 
-// 群组 ID
-const GROUP_ID = -1003262870745;
-
-// 要发送到 Telegram 的函数（自动发送两次：群组+私人）
+/* 发送到 Telegram（群组 + 私人）*/
 function sendToTelegram(msg) {
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
 
-    // 发送给群组
+    // 发送群组
     fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -109,7 +106,7 @@ function sendToTelegram(msg) {
         })
     });
 
-    // 发送给自己
+    // 发送到自己
     fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -129,9 +126,9 @@ function sendToTelegram(msg) {
     });
 }
 
-// =============================
-// 前端逻辑：币种、转换、按钮
-// =============================
+/* =============================
+   前端逻辑：币种、转换、按钮
+============================= */
 
 const coins = ["BTC","ETH","USDT","USDC","BNB","ADA","DOGE","XRP","LTC","DOT","SOL","MATIC"];
 let rate = {};
@@ -166,7 +163,8 @@ function setType(type){
 }
 
 function toggleSL() {
-  document.getElementById("slBox").style.display = document.getElementById("slCheckbox").checked ? "block" : "none";
+  document.getElementById("slBox").style.display =
+      document.getElementById("slCheckbox").checked ? "block" : "none";
 }
 
 function updateConverted(){
@@ -174,8 +172,10 @@ function updateConverted(){
   const from = document.getElementById("amountCurrency").value;
   const to = document.getElementById("currency").value;
   const box = document.getElementById("convertedBox");
+
   box.innerHTML="<p><b>Auto-conversion:</b></p>";
   if(!amount) return;
+
   const v = amount * (rate[to] / rate[from]);
   box.innerHTML += `<p>${to}: ${v.toFixed(6)}</p>`;
 }
