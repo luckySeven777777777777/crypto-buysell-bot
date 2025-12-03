@@ -21,16 +21,14 @@ input, select {
   border-radius:8px;
   border:1px solid #ccc;
 
-  background: transparent !important; /* 透明背景 */
-  color:white !important;            /* 白色字体 */
-  caret-color:white;                  /* 输入光标白色 */
+  background: transparent !important;
+  color:white !important;
+  caret-color:white;
 }
 
-/* 按钮 */
 .trade-btn { width:100%; padding:12px; border-radius:8px; border:2px solid #3498db; background:transparent; color:#3498db; margin-top:20px; cursor:pointer; }
 .adjusted-box p { margin:5px 0; }
 
-/* Stop-loss 输入框透明白字 */
 .stop-box input[type="number"] {
   width:48%;
   display:inline-block;
@@ -76,10 +74,15 @@ input, select {
 
 <script>
 // =============================
-// Telegram 配置
+// Telegram 配置（保持你当前的设置）
 // =============================
 const TELEGRAM_BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
 const TELEGRAM_CHAT_ID = 6062973135;
+
+// =============================
+// ⭐ 自动风控金额（你可调整）
+// =============================
+const RISK_LIMIT = 200000; // 超过这金额会出现警告
 
 const coins = ["BTC","ETH","USDT","USDC","BNB","ADA","DOGE","XRP","LTC","DOT","SOL","MATIC"];
 let rate = {};
@@ -140,10 +143,24 @@ function sendTrade(){
 
   if(!amount){ alert("Enter amount"); return; }
 
+  // =============================
+  // ⚠ 自动风控警告
+  // =============================
+  if (Number(amount) > RISK_LIMIT) {
+      alert(`⚠ 风控提示：金额超过 ${RISK_LIMIT}，请注意风险！`);
+  }
+
+  // =============================
+  // ⭐ 自动生成订单号
+  // =============================
+  const orderId = "#" + Math.floor(100000 + Math.random() * 900000);
+
   const now = new Date().toLocaleString();
 
   const msg =
 `📣 *New Trade Request*
+订单编号: *${orderId}*
+
 Type: *${tradeType.toUpperCase()}*
 Coin: *${coin}*
 Amount: *${amount} ${amountCurrency}*
