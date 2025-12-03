@@ -1,14 +1,13 @@
 {
-  "name": "telegram-trade",
+  "name": "crypto-trade-bot",
   "version": "1.0.0",
-  "type": "module",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "node-telegram-bot-api": "^0.61.0",
-    "uuid": "^9.0.0"
+    "node-telegram-bot-api": "^0.61.0"
   }
 }
