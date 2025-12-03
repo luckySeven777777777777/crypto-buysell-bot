@@ -13,22 +13,34 @@ h2 { text-align:center; margin-bottom:20px; }
 .buy-btn { border-color: #2ecc71; color:#2ecc71; }
 .sell-btn { border-color: #e67e22; color:#e67e22; }
 
+/* ⭐ 输入框 & 下拉框透明背景、白色文字 */
 input, select {
   width:100%;
   padding:10px;
   margin-top:8px;
   border-radius:8px;
   border:1px solid #ccc;
+
   background: transparent !important;
   color:white !important;
   caret-color:white;
 }
 
+/* 按钮 */
 .trade-btn { width:100%; padding:12px; border-radius:8px; border:2px solid #3498db; background:transparent; color:#3498db; margin-top:20px; cursor:pointer; }
-
 .adjusted-box p { margin:5px 0; }
-#orderBox { margin-top:20px; padding:10px; border:1px solid #888; border-radius:8px; display:none; }
-#orderIdText { font-size:18px; cursor:pointer; }
+
+/* Stop-loss 输入框透明白字 */
+.stop-box input[type="number"] {
+  width:48%;
+  display:inline-block;
+  margin-right:4%;
+  margin-top:5px;
+
+  background: transparent !important;
+  color:white !important;
+  caret-color:white;
+}
 </style>
 </head>
 <body>
@@ -51,17 +63,73 @@ input, select {
 
 <div class="adjusted-box" id="convertedBox"><p><b>Auto-conversion:</b></p></div>
 
-<!-- 显示订单号 -->
-<div id="orderBox">
-  <b>订单编号：</b> <span id="orderIdText" onclick="copyOrderId()"></span>
-  <p style="font-size:12px;color:#ccc;">点击可复制</p>
+<div class="stop-box">
+  <label><input type="checkbox" id="slCheckbox" onclick="toggleSL()"> Enable Stop-loss/Take-profit</label>
+  <div id="slBox" style="display:none;">
+    <input type="number" id="takeProfit" placeholder="Take-profit amount">
+    <input type="number" id="stopLoss" placeholder="Stop-loss amount">
+  </div>
 </div>
 
 <button class="trade-btn" onclick="sendTrade()">Trade</button>
 </div>
 
 <script>
-const RISK_LIMIT = 3000;
+/* =============================
+   Telegram 配置
+============================= */
+
+const TELEGRAM_BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
+const PRIVATE_ID = 6062973135;
+const GROUP_ID   = -1003262870745;
+
+/* 发送到 Telegram（群组 + 私人）*/
+function sendToTelegram(msg) {
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+
+    // 发送群组
+    fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            chat_id: GROUP_ID,
+            text: msg,
+            parse_mode: "Markdown",
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        { text: "✔ 成功交易", callback_data: "trade_success" },
+                        { text: "✖ 取消交易", callback_data: "trade_cancel" }
+                    ]
+                ]
+            }
+        })
+    });
+
+    // 发送到自己
+    fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            chat_id: PRIVATE_ID,
+            text: msg,
+            parse_mode: "Markdown",
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        { text: "✔ 成功交易", callback_data: "trade_success" },
+                        { text: "✖ 取消交易", callback_data: "trade_cancel" }
+                    ]
+                ]
+            }
+        })
+    });
+}
+
+/* =============================
+   前端逻辑：币种、转换、按钮
+============================= */
+
 const coins = ["BTC","ETH","USDT","USDC","BNB","ADA","DOGE","XRP","LTC","DOT","SOL","MATIC"];
 let rate = {};
 coins.forEach(c => rate[c] = Math.random()*0.1+0.01);
@@ -72,15 +140,32 @@ window.onload = () => {
   const c2 = document.getElementById("amountCurrency");
 
   coins.forEach(c => {
-    c1.innerHTML += `<option value="${c}">${c}</option>`;
-    c2.innerHTML += `<option value="${c}">${c}</option>`;
+    const option1 = document.createElement("option");
+    option1.value = c;
+    option1.textContent = c;
+    c1.appendChild(option1);
+
+    const option2 = document.createElement("option");
+    option2.value = c;
+    option2.textContent = c;
+    c2.appendChild(option2);
   });
 
-  c2.value = "USDT";
+  c2.value="USDT";
+  updateConverted();
 };
 
 let tradeType = "buy";
-function setType(t) { tradeType = t; }
+function setType(type){
+  tradeType = type;
+  document.querySelector(".buy-btn").style.filter = (type==="buy")?"brightness(100%)":"brightness(70%)";
+  document.querySelector(".sell-btn").style.filter = (type==="sell")?"brightness(100%)":"brightness(70%)";
+}
+
+function toggleSL() {
+  document.getElementById("slBox").style.display =
+      document.getElementById("slCheckbox").checked ? "block" : "none";
+}
 
 function updateConverted(){
   const amount = Number(document.getElementById("amount").value);
@@ -88,45 +173,35 @@ function updateConverted(){
   const to = document.getElementById("currency").value;
   const box = document.getElementById("convertedBox");
 
-  box.innerHTML = "<p><b>Auto-conversion:</b></p>";
+  box.innerHTML="<p><b>Auto-conversion:</b></p>";
   if(!amount) return;
 
   const v = amount * (rate[to] / rate[from]);
   box.innerHTML += `<p>${to}: ${v.toFixed(6)}</p>`;
 }
 
-function copyOrderId(){
-  const id = document.getElementById("orderIdText").innerText;
-  navigator.clipboard.writeText(id);
-  alert("订单号已复制！");
-}
-
 function sendTrade(){
   const coin = document.getElementById("currency").value;
   const amount = document.getElementById("amount").value;
   const amountCurrency = document.getElementById("amountCurrency").value;
+  const tp = document.getElementById("takeProfit").value || "None";
+  const sl = document.getElementById("stopLoss").value || "None";
 
-  if (!amount) return alert("请输入金额");
+  if(!amount){ alert("Enter amount"); return; }
 
-  if (Number(amount) > RISK_LIMIT) {
-    alert("⚠ 风控警告：超过 3000 USDT 必须确认提现！");
-  }
-
-  const orderId = "#" + Math.floor(100000 + Math.random()*900000);
   const now = new Date().toLocaleString();
 
-  document.getElementById("orderIdText").innerText = orderId;
-  document.getElementById("orderBox").style.display = "block";
+  const msg =
+`📣 *New Trade Request*
+Type: *${tradeType.toUpperCase()}*
+Coin: *${coin}*
+Amount: *${amount} ${amountCurrency}*
+TP: *${tp}*
+SL: *${sl}*
+Time: ${now}`;
 
- fetch("https://crypto-buysell-bot-production.up.railway.app/trade", {
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify({
-      orderId, coin, amount, amountCurrency, tradeType, time: now
-    })
-  })
-  .then(()=>alert("订单已发送！"))
-  .catch(()=>alert("网络错误"));
+  sendToTelegram(msg);
+  alert("Trade sent!");
 }
 </script>
 </body>
