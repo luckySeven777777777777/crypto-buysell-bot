@@ -12,39 +12,51 @@ app.use(express.static("public"));
 
 const PORT = process.env.PORT || 8080;
 
-// === 你的机器人配置 ===
-const BOT_TOKEN = process.env.BOT_TOKEN || "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
-const GROUP_ID = Number(process.env.GROUP_ID) || -1003262870745;
-const PRIVATE_ID = Number(process.env.PRIVATE_ID) || 6062973135;
+// === ENV VARIABLES ===
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const GROUP_ID = Number(process.env.GROUP_ID);
+const PRIVATE_ID = Number(process.env.PRIVATE_ID);
 
-// ⭐⭐⭐ 新增：多管理员
-const ADMINS = [
-    PRIVATE_ID,        // 主管理员（你）
-    7416199637,        // 管理员 2
-    6615925197         // 管理员 3
-];
+// 多管理员（从环境变量解析）
+const ADMINS = process.env.ADMINS
+    ? process.env.ADMINS.split(",").map(n => Number(n.trim()))
+    : [PRIVATE_ID];
 
-// 初始化机器人（polling 模式）
+// 自动风控金额
+const MAX_AMOUNT = Number(process.env.MAX_AMOUNT) || 5000;
+
+// === INIT BOT (POLLING) ===
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// =======================================
-// /id 指令 — 显示当前聊天的真实 chat.id
-// =======================================
+// === /id 指令 ===
 bot.on("message", async (msg) => {
     if (msg.text === "/id") {
-        const chatId = msg.chat.id;
-        bot.sendMessage(chatId, `🔍 本聊天的 ID 是：\`${chatId}\``, {
+        bot.sendMessage(msg.chat.id, `🔍 Chat ID: \`${msg.chat.id}\``, {
             parse_mode: "Markdown"
         });
     }
 });
 
-// 保存已操作用户
-const actionMap = new Map(); // message_id -> user_id
+// === 订单状态记录 ===
+const orderStatus = new Map(); // message_id → { locked, operator }
 
-function createInlineKeyboard() {
+// === INLINE BUTTONS ===
+function createButtons(isLocked) {
+    if (isLocked) {
+        return {
+            inline_keyboard: [
+                [{ text: "🔓 解锁订单", callback_data: "unlock_order" }],
+                [
+                    { text: "✔️ 审核通过", callback_data: "approve_order" },
+                    { text: "❌ 审核拒绝", callback_data: "reject_order" }
+                ]
+            ]
+        };
+    }
+
     return {
         inline_keyboard: [
+            [{ text: "🔒 锁定订单", callback_data: "lock_order" }],
             [
                 { text: "✔️ 成功交易", callback_data: "trade_success" },
                 { text: "✖️ 取消交易", callback_data: "trade_cancel" }
@@ -53,113 +65,136 @@ function createInlineKeyboard() {
     };
 }
 
-// 发送交易信息
+// === 发送订单信息 ===
 async function sendTradeMessage(trade) {
-    const msg = `📣 *New Trade Request*
-Type: *${trade.tradeType.toUpperCase()}*
+    const risk = Number(trade.amount) >= MAX_AMOUNT ? "⚠️ *High Risk Order*\n" : "";
+
+    const text =
+`📣 *New Trade Request*
 Coin: *${trade.coin}*
 Amount: *${trade.amount} ${trade.amountCurrency}*
 TP: *${trade.tp || "None"}*
 SL: *${trade.sl || "None"}*
-Time: ${new Date().toLocaleString()}
-`;
+${risk}
+Time: ${new Date().toLocaleString()}`;
 
-    const options = {
+    const opts = {
         parse_mode: "Markdown",
-        reply_markup: createInlineKeyboard(),
+        reply_markup: createButtons(false)
     };
 
-    // 发群
-    const groupMsg = await bot.sendMessage(GROUP_ID, msg, options);
+    // 群
+    const groupMsg = await bot.sendMessage(GROUP_ID, text, opts);
 
-    // 发给你私人
-    const privateMsg = await bot.sendMessage(PRIVATE_ID, msg, options);
+    // 私聊
+    const privateMsg = await bot.sendMessage(PRIVATE_ID, text, opts);
 
-    actionMap.set(groupMsg.message_id, null);
-    actionMap.set(privateMsg.message_id, null);
+    orderStatus.set(groupMsg.message_id, { locked: false });
+    orderStatus.set(privateMsg.message_id, { locked: false });
 }
 
-// 按钮点击
-bot.on("callback_query", async (callbackQuery) => {
-    const chatId = callbackQuery.message.chat.id;
-    const messageId = callbackQuery.message.message_id;
-    const userId = callbackQuery.from.id;
+// === 按键回调 ===
+bot.on("callback_query", async (q) => {
+    const msg = q.message;
+    const mid = msg.message_id;
+    const uid = q.from.id;
 
-    // ⭐⭐⭐ 新增多管理员权限判断
-    if (!ADMINS.includes(userId)) {
-        return bot.answerCallbackQuery(callbackQuery.id, {
-            text: "❌ 你没有权限操作此订单",
+    // 权限
+    if (!ADMINS.includes(uid)) {
+        return bot.answerCallbackQuery(q.id, {
+            text: "❌ 无权限操作",
             show_alert: true
         });
     }
 
-    const text = callbackQuery.message.text;
+    const status = orderStatus.get(mid) || { locked: false };
 
-    const coin = (text.match(/Coin:\s\*?(.*?)\*?\n/) || [])[1] || "Unknown";
-    const amount = (text.match(/Amount:\s\*?(.*?)\*?\n/) || [])[1] || "Unknown";
+    // === 锁单 ===
+    if (q.data === "lock_order") {
+        orderStatus.set(mid, { locked: true, operator: uid });
 
-    const operator = callbackQuery.from.username
-        ? `@${callbackQuery.from.username}`
-        : callbackQuery.from.first_name;
-
-    // 防止重复操作
-    const already = actionMap.get(messageId);
-    if (already && already !== userId) {
-        return bot.answerCallbackQuery(callbackQuery.id, {
-            text: "此交易已被其他管理员处理。",
-            show_alert: true,
+        await bot.editMessageReplyMarkup(createButtons(true), {
+            chat_id: msg.chat.id,
+            message_id: mid
         });
+
+        return bot.answerCallbackQuery(q.id, { text: "🔒 已锁单" });
     }
-    if (already === userId) {
-        return bot.answerCallbackQuery(callbackQuery.id, {
-            text: "你已经操作过了。",
-            show_alert: true,
+
+    // === 解锁 ===
+    if (q.data === "unlock_order") {
+        orderStatus.set(mid, { locked: false, operator: null });
+
+        await bot.editMessageReplyMarkup(createButtons(false), {
+            chat_id: msg.chat.id,
+            message_id: mid
         });
+
+        return bot.answerCallbackQuery(q.id, { text: "🔓 已解锁" });
     }
 
-    actionMap.set(messageId, userId);
-
-    let resultText = "";
-
-    if (callbackQuery.data === "trade_success") {
-        resultText = `✔️ *交易已成功！*
-币种: *${coin}*
-金额: *${amount}*
-操作人: ${operator}
-时间: ${new Date().toLocaleString()}`;
-    } else {
-        resultText = `❌ *交易已取消！*
-币种: *${coin}*
-金额: *${amount}*
-操作人: ${operator}
-时间: ${new Date().toLocaleString()}`;
+    // === 审核通过 ===
+    if (q.data === "approve_order") {
+        await bot.editMessageText(
+            `✅ *订单审核通过*
+操作人：${q.from.first_name}
+时间：${new Date().toLocaleString()}`,
+            { chat_id: msg.chat.id, message_id: mid, parse_mode: "Markdown" }
+        );
+        return bot.answerCallbackQuery(q.id, { text: "审核成功" });
     }
 
-    await bot.editMessageText(resultText, {
-        chat_id: chatId,
-        message_id: messageId,
-        parse_mode: "Markdown",
-        reply_markup: { inline_keyboard: [] },
-    });
+    // === 审核拒绝 ===
+    if (q.data === "reject_order") {
+        await bot.editMessageText(
+            `❌ *订单审核拒绝*
+操作人：${q.from.first_name}
+时间：${new Date().toLocaleString()}`,
+            { chat_id: msg.chat.id, message_id: mid, parse_mode: "Markdown" }
+        );
+        return bot.answerCallbackQuery(q.id, { text: "已拒绝" });
+    }
 
-    await bot.answerCallbackQuery(callbackQuery.id);
+    // === 原本的成功 / 取消 ===
+    if (q.data === "trade_success" || q.data === "trade_cancel") {
+
+        if (status.locked) {
+            return bot.answerCallbackQuery(q.id, {
+                text: "⚠️ 订单已锁定，无法操作",
+                show_alert: true
+            });
+        }
+
+        const result =
+            q.data === "trade_success"
+                ? "✔️ *交易已成功*"
+                : "❌ *交易已取消*";
+
+        await bot.editMessageText(
+            `${result}
+操作人：${q.from.first_name}
+时间：${new Date().toLocaleString()}`,
+            { chat_id: msg.chat.id, message_id: mid, parse_mode: "Markdown" }
+        );
+
+        return bot.answerCallbackQuery(q.id);
+    }
 });
 
-// 前端发送 /trade 请求
+// === FOR FRONT-END ===
 app.post("/trade", async (req, res) => {
     try {
-        const trade = req.body;
-        await sendTradeMessage(trade);
-        res.status(200).send("Trade sent successfully");
-    } catch (e) {
-        console.error(e);
-        res.status(500).send("Error");
+        await sendTradeMessage(req.body);
+        res.status(200).send("OK");
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("ERR");
     }
 });
 
+// === ROOT ===
 app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "public/index.html"));
 });
 
-// 启动服务
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
