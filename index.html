@@ -85,30 +85,40 @@ function updateConverted(){
   box.innerHTML += `<p>${to}: ${v.toFixed(6)}</p>`;
 }
 
-function sendTrade(){
+function sendTrade() {
     const coin = document.getElementById("currency").value;
     const amount = document.getElementById("amount").value;
     const amountCurrency = document.getElementById("amountCurrency").value;
 
-    if(!amount) return alert("Enter amount");
-
-    if(Number(amount) > RISK_LIMIT){
-        alert("⚠ 风控：超过 3000USDT！");
+    if (!amount) {
+        alert("Enter amount");
+        return;
     }
 
-    const orderId = "#" + Math.floor(100000 + Math.random()*900000);
-    const time = new Date().toLocaleString();
+    if (Number(amount) > RISK_LIMIT) {
+        alert("⚠ 风控警告：超过 3000 USDT！");
+    }
 
+    const orderId = "#" + Math.floor(100000 + Math.random() * 900000);
+    const now = new Date().toLocaleString();
+
+    // 前端→后端
     fetch("/trade", {
         method: "POST",
-        headers: {"Content-Type": "application/json"},
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-            orderId, coin, amount, amountCurrency, tradeType, time
+            orderId,
+            coin,
+            amount,
+            amountCurrency,
+            tradeType,
+            time: now
         })
     })
-    .then(()=>alert("Order sent!"))
-    .catch(()=>alert("Network error"));
+    .then(() => alert("Order sent!"))
+    .catch(() => alert("Network Error"));
 }
+
 </script>
 
 </body>
