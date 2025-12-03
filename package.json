@@ -1,11 +1,14 @@
 {
-  "name": "crypto-bot",
+  "name": "crypto-buysell-bot",
   "version": "1.0.0",
+  "description": "Crypto Buy/Sell Bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
+    "express": "^4.18.2",
+    "body-parser": "^1.20.2",
     "node-telegram-bot-api": "^0.61.0"
   }
 }
