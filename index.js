@@ -1,35 +1,25 @@
-import express from "express";
-import TelegramBot from "node-telegram-bot-api";
-import path from "path";
-import { fileURLToPath } from "url";
+const express = require("express");
+const TelegramBot = require("node-telegram-bot-api");
+const path = require("path");
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const TOKEN = process.env.BOT_TOKEN;
-const GROUP_ID = process.env.GROUP_ID;
-const ADMINS = process.env.ADMINS ? process.env.ADMINS.split(",") : [];
+const TOKEN = process.env.BOT_TOKEN || "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
+const GROUP_ID = process.env.GROUP_ID || -1003262870745;
+const ADMINS = process.env.ADMINS ? process.env.ADMINS.split(",") : [6062973135,7416199637,6615925197];
 
 const app = express();
 app.use(express.json());
 app.use(express.static(__dirname));
 
+// 保留你原来的 polling，不动
+const bot = new TelegramBot(TOKEN, { polling: true });
+
 let orderData = {};
 
-// 使用 webhook（替代 polling）
-const bot = new TelegramBot(TOKEN);
-bot.setWebHook(`https://crypto-buysell-bot-production.up.railway.app/bot${TOKEN}`);
-
-app.post(`/bot${TOKEN}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-
-// 处理按钮回调
 bot.on("callback_query", (query) => {
     const chatId = query.message.chat.id;
     const user = query.from.username ? `@${query.from.username}` : "Unknown";
     const data = query.data;
+
     if (!data) return;
 
     const [action, orderId] = data.split("_");
@@ -52,8 +42,7 @@ bot.on("callback_query", (query) => {
 币种: ${order.coin}
 金额: ${order.amount} ${order.amountCurrency}
 操作人: ${user}
-时间: ${order.time}`
-        );
+时间: ${order.time}`);
     }
 
     if (action === "cancel") {
@@ -63,12 +52,11 @@ bot.on("callback_query", (query) => {
 币种: ${order.coin}
 金额: ${order.amount} ${order.amountCurrency}
 操作人: ${user}
-时间: ${order.time}`
-        );
+时间: ${order.time}`);
     }
 });
 
-// 前端 sendTrade → Telegram 群组
+// 前端发送订单 → 群通知
 app.post("/trade", (req, res) => {
     const { orderId, coin, amount, amountCurrency, tradeType, time } = req.body;
 
@@ -97,4 +85,4 @@ app.post("/trade", (req, res) => {
 });
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log("Webhook server running:", PORT));
+app.listen(PORT, () => console.log("BOT Running on PORT", PORT));
