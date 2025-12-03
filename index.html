@@ -13,7 +13,6 @@ h2 { text-align:center; margin-bottom:20px; }
 .buy-btn { border-color: #2ecc71; color:#2ecc71; }
 .sell-btn { border-color: #e67e22; color:#e67e22; }
 
-/* ⭐ 输入框 & 下拉框统一透明背景，白色文字 */
 input, select {
   width:100%;
   padding:10px;
@@ -21,16 +20,14 @@ input, select {
   border-radius:8px;
   border:1px solid #ccc;
 
-  background: transparent !important; /* 透明背景 */
-  color:white !important;            /* 白色字体 */
-  caret-color:white;                  /* 输入光标白色 */
+  background: transparent !important;
+  color:white !important;
+  caret-color:white;
 }
 
-/* 按钮 */
 .trade-btn { width:100%; padding:12px; border-radius:8px; border:2px solid #3498db; background:transparent; color:#3498db; margin-top:20px; cursor:pointer; }
 .adjusted-box p { margin:5px 0; }
 
-/* Stop-loss 输入框透明白字 */
 .stop-box input[type="number"] {
   width:48%;
   display:inline-block;
@@ -75,10 +72,7 @@ input, select {
 </div>
 
 <script>
-// =============================
-// 前端配置（不包含 bot token）
-// =============================
-const BACKEND_TRADE_ENDPOINT = "/trade"; // POST
+const BACKEND_TRADE_ENDPOINT = "/trade";
 const coins = ["BTC","ETH","USDT","USDC","BNB","ADA","DOGE","XRP","LTC","DOT","SOL","MATIC"];
 let rate = {};
 coins.forEach(c => rate[c] = Math.random()*0.1+0.01);
@@ -138,7 +132,6 @@ async function sendTrade(){
 
   if(!amount){ alert("Enter amount"); return; }
 
-  // 构建发送体（后端会负责通知群 + 所有管理员）
   const payload = {
     tradeType,
     coin,
