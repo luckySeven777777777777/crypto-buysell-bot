@@ -1,8 +1,8 @@
 {
-  "name": "crypto-buysell-bot",
+  "name": "crypto-trade-bot",
   "version": "1.0.0",
-  "description": "Crypto Buy/Sell Bot",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
