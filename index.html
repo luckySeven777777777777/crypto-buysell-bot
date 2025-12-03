@@ -14,19 +14,26 @@ h2 { text-align:center; margin-bottom:20px; }
 .sell-btn { border-color: #e67e22; color:#e67e22; }
 
 input, select {
-  width:100%; padding:10px; margin-top:8px; border-radius:8px;
-  border:1px solid #ccc; background: transparent !important;
-  color:white !important; caret-color:white;
+  width:100%;
+  padding:10px;
+  margin-top:8px;
+  border-radius:8px;
+  border:1px solid #ccc;
+  background: transparent !important;
+  color:white !important;
+  caret-color:white;
 }
 
-.trade-btn { width:100%; padding:12px; border-radius:8px; border:2px solid #3498db;
-  background:transparent; color:#3498db; margin-top:20px; cursor:pointer; }
+.trade-btn { width:100%; padding:12px; border-radius:8px; border:2px solid #3498db; background:transparent; color:#3498db; margin-top:20px; cursor:pointer; }
 
 .adjusted-box p { margin:5px 0; }
+#orderBox { margin-top:20px; padding:10px; border:1px solid #888; border-radius:8px; display:none; }
+#orderIdText { font-size:18px; cursor:pointer; }
 </style>
 </head>
 <body>
 <div class="container">
+<h2></h2>
 
 <div class="transaction-type">
   <button class="btn buy-btn" onclick="setType('buy')">Buy</button>
@@ -34,43 +41,46 @@ input, select {
 </div>
 
 <label>Select Coin:</label>
-<select id="currency"></select>
+<select id="currency" onchange="updateConverted()"></select>
 
 <label>Amount:</label>
-<input type="number" id="amount" placeholder="Enter amount">
+<input type="number" id="amount" placeholder="Enter amount" oninput="updateConverted()">
 
 <label>Amount Currency:</label>
-<select id="amountCurrency"></select>
+<select id="amountCurrency" onchange="updateConverted()"></select>
 
-<div class="adjusted-box" id="convertedBox">
-  <p><b>Auto-conversion:</b></p>
+<div class="adjusted-box" id="convertedBox"><p><b>Auto-conversion:</b></p></div>
+
+<!-- 显示订单号 -->
+<div id="orderBox">
+  <b>订单编号：</b> <span id="orderIdText" onclick="copyOrderId()"></span>
+  <p style="font-size:12px;color:#ccc;">点击可复制</p>
 </div>
 
 <button class="trade-btn" onclick="sendTrade()">Trade</button>
 </div>
 
 <script>
-// ===========================
 const RISK_LIMIT = 3000;
 const coins = ["BTC","ETH","USDT","USDC","BNB","ADA","DOGE","XRP","LTC","DOT","SOL","MATIC"];
 let rate = {};
 coins.forEach(c => rate[c] = Math.random()*0.1+0.01);
-rate["USDT"] = 1;
+rate["USDT"]=1;
 
 window.onload = () => {
-    const c1 = document.getElementById("currency");
-    const c2 = document.getElementById("amountCurrency");
+  const c1 = document.getElementById("currency");
+  const c2 = document.getElementById("amountCurrency");
 
-    coins.forEach(c => {
-        c1.innerHTML += `<option value="${c}">${c}</option>`;
-        c2.innerHTML += `<option value="${c}">${c}</option>`;
-    });
+  coins.forEach(c => {
+    c1.innerHTML += `<option value="${c}">${c}</option>`;
+    c2.innerHTML += `<option value="${c}">${c}</option>`;
+  });
 
-    c2.value = "USDT";
+  c2.value = "USDT";
 };
 
 let tradeType = "buy";
-function setType(t){ tradeType = t; }
+function setType(t) { tradeType = t; }
 
 function updateConverted(){
   const amount = Number(document.getElementById("amount").value);
@@ -85,41 +95,39 @@ function updateConverted(){
   box.innerHTML += `<p>${to}: ${v.toFixed(6)}</p>`;
 }
 
-function sendTrade() {
-    const coin = document.getElementById("currency").value;
-    const amount = document.getElementById("amount").value;
-    const amountCurrency = document.getElementById("amountCurrency").value;
-
-    if (!amount) {
-        alert("Enter amount");
-        return;
-    }
-
-    if (Number(amount) > RISK_LIMIT) {
-        alert("⚠ 风控警告：超过 3000 USDT！");
-    }
-
-    const orderId = "#" + Math.floor(100000 + Math.random() * 900000);
-    const now = new Date().toLocaleString();
-
-    // 前端→后端
-    fetch("/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            orderId,
-            coin,
-            amount,
-            amountCurrency,
-            tradeType,
-            time: now
-        })
-    })
-    .then(() => alert("Order sent!"))
-    .catch(() => alert("Network Error"));
+function copyOrderId(){
+  const id = document.getElementById("orderIdText").innerText;
+  navigator.clipboard.writeText(id);
+  alert("订单号已复制！");
 }
 
-</script>
+function sendTrade(){
+  const coin = document.getElementById("currency").value;
+  const amount = document.getElementById("amount").value;
+  const amountCurrency = document.getElementById("amountCurrency").value;
 
+  if (!amount) return alert("请输入金额");
+
+  if (Number(amount) > RISK_LIMIT) {
+    alert("⚠ 风控警告：超过 3000 USDT 必须确认提现！");
+  }
+
+  const orderId = "#" + Math.floor(100000 + Math.random()*900000);
+  const now = new Date().toLocaleString();
+
+  document.getElementById("orderIdText").innerText = orderId;
+  document.getElementById("orderBox").style.display = "block";
+
+ fetch("https://crypto-buysell-bot-production.up.railway.app/trade", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({
+      orderId, coin, amount, amountCurrency, tradeType, time: now
+    })
+  })
+  .then(()=>alert("订单已发送！"))
+  .catch(()=>alert("网络错误"));
+}
+</script>
 </body>
 </html>
