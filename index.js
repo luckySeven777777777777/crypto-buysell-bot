@@ -1,37 +1,93 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const TelegramBot = require("node-telegram-bot-api");
+import express from "express";
+import TelegramBot from "node-telegram-bot-api";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const TOKEN = process.env.BOT_TOKEN;
+const GROUP_ID = process.env.GROUP_ID;
+const ADMINS = process.env.ADMINS ? process.env.ADMINS.split(",") : [];
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
+app.use(express.static(__dirname));
 
-// ===========================
-const BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
-const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+let orderData = {};
 
-// 禁止重复点击
-const processedOrders = new Set();
+// 使用 webhook（替代 polling）
+const bot = new TelegramBot(TOKEN);
+bot.setWebHook(`https://crypto-buysell-bot-production.up.railway.app/bot${TOKEN}`);
 
-// ===========================
-// 前端发来的订单
-// ===========================
+app.post(`/bot${TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+// 处理按钮回调
+bot.on("callback_query", (query) => {
+    const chatId = query.message.chat.id;
+    const user = query.from.username ? `@${query.from.username}` : "Unknown";
+    const data = query.data;
+    if (!data) return;
+
+    const [action, orderId] = data.split("_");
+    const order = orderData[orderId];
+
+    if (!order) {
+        return bot.sendMessage(chatId, "订单不存在或已过期。");
+    }
+
+    if (order.handled) {
+        return bot.sendMessage(chatId, "此订单已处理，不能重复点击。");
+    }
+
+    order.handled = true;
+
+    if (action === "success") {
+        bot.sendMessage(chatId,
+`✔ 交易成功！
+🆔 订单编号: ${orderId}
+币种: ${order.coin}
+金额: ${order.amount} ${order.amountCurrency}
+操作人: ${user}
+时间: ${order.time}`
+        );
+    }
+
+    if (action === "cancel") {
+        bot.sendMessage(chatId,
+`❌ 交易已取消！
+🆔 订单编号: ${orderId}
+币种: ${order.coin}
+金额: ${order.amount} ${order.amountCurrency}
+操作人: ${user}
+时间: ${order.time}`
+        );
+    }
+});
+
+// 前端 sendTrade → Telegram 群组
 app.post("/trade", (req, res) => {
     const { orderId, coin, amount, amountCurrency, tradeType, time } = req.body;
 
-    const cleanId = orderId.replace("#", "");
+    orderData[orderId] = { coin, amount, amountCurrency, time, handled:false };
 
-    const msg =
-`Type: ${tradeType.toUpperCase()}
-Coin: ${coin}
-Amount: ${amount} ${amountCurrency}
-Time: ${time}`;
+    bot.sendMessage(GROUP_ID,
+`📌 新订单请求
+🆔 订单编号: ${orderId}
 
-    bot.sendMessage(6062973135, msg, {
+类型: ${tradeType.toUpperCase()}
+币种: ${coin}
+金额: ${amount} ${amountCurrency}
+时间: ${time}`,
+    {
         reply_markup: {
             inline_keyboard: [
                 [
-                    { text: "✔ 成功交易", callback_data: `success_${cleanId}` },
-                    { text: "✖ 取消交易", callback_data: `cancel_${cleanId}` }
+                    { text:"✔ 成功交易", callback_data:`success_${orderId}` },
+                    { text:"✖ 取消交易", callback_data:`cancel_${orderId}` }
                 ]
             ]
         }
@@ -40,51 +96,5 @@ Time: ${time}`;
     res.sendStatus(200);
 });
 
-// ===========================
-// 处理按钮点击
-// ===========================
-bot.on("callback_query", (q) => {
-    const chatId = q.message.chat.id;
-    const data = q.data;
-    const msg = q.message.text;
-
-    const [action, id] = data.split("_");
-    const orderId = "#" + id;
-
-    // 防止重复点击
-    if (processedOrders.has(id)) {
-        bot.answerCallbackQuery(q.id, { text: "⛔ 已处理过此订单", show_alert: true });
-        return;
-    }
-    processedOrders.add(id);
-
-    // 从原消息解析币种金额
-    const coin = msg.match(/Coin:\s(.+)/)?.[1] || "Unknown";
-    const amount = msg.match(/Amount:\s(.+)/)?.[1] || "Unknown";
-    const time = new Date().toLocaleString();
-
-    if (action === "success") {
-        bot.sendMessage(chatId,
-`✔ 交易成功！
-🆔 订单编号：${orderId}
-币种：${coin}
-金额：${amount}
-时间：${time}`);
-    } else {
-        bot.sendMessage(chatId,
-`❌ 交易已取消！
-🆔 订单编号：${orderId}
-币种：${coin}
-金额：${amount}
-时间：${time}`);
-    }
-
-    // 删除按钮，防止继续点击
-    bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
-        chat_id: chatId,
-        message_id: q.message.message_id
-    });
-});
-
-// ===========================
-app.listen(8080, () => console.log("BOT Running on PORT 8080"));
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => console.log("Webhook server running:", PORT));
