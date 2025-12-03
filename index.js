@@ -1,10 +1,11 @@
-import express from "express";
-import bodyParser from "body-parser";
-import TelegramBot from "node-telegram-bot-api";
+const express = require("express");
+const bodyParser = require("body-parser");
+const TelegramBot = require("node-telegram-bot-api");
 
 const app = express();
 app.use(bodyParser.json());
 
+// ===========================
 const BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
@@ -12,12 +13,12 @@ const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 const processedOrders = new Set();
 
 // ===========================
-// 收到前端订单
+// 前端发来的订单
 // ===========================
 app.post("/trade", (req, res) => {
     const { orderId, coin, amount, amountCurrency, tradeType, time } = req.body;
 
-    const cleanId = orderId.replace("#", ""); // 用于 callback_data
+    const cleanId = orderId.replace("#", "");
 
     const msg =
 `Type: ${tradeType.toUpperCase()}
@@ -40,7 +41,7 @@ Time: ${time}`;
 });
 
 // ===========================
-// 按钮处理（成功 / 取消）
+// 处理按钮点击
 // ===========================
 bot.on("callback_query", (q) => {
     const chatId = q.message.chat.id;
@@ -50,20 +51,19 @@ bot.on("callback_query", (q) => {
     const [action, id] = data.split("_");
     const orderId = "#" + id;
 
-    // 阻止重复点击
+    // 防止重复点击
     if (processedOrders.has(id)) {
         bot.answerCallbackQuery(q.id, { text: "⛔ 已处理过此订单", show_alert: true });
         return;
     }
     processedOrders.add(id);
 
-    // 解析币种金额
+    // 从原消息解析币种金额
     const coin = msg.match(/Coin:\s(.+)/)?.[1] || "Unknown";
     const amount = msg.match(/Amount:\s(.+)/)?.[1] || "Unknown";
-
     const time = new Date().toLocaleString();
 
-    if(action === "success"){
+    if (action === "success") {
         bot.sendMessage(chatId,
 `✔ 交易成功！
 🆔 订单编号：${orderId}
@@ -79,11 +79,12 @@ bot.on("callback_query", (q) => {
 时间：${time}`);
     }
 
-    // 删除按钮，防止再次点击
+    // 删除按钮，防止继续点击
     bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
         chat_id: chatId,
         message_id: q.message.message_id
     });
 });
 
-app.listen(8080, () => console.log("BOT Running on 8080"));
+// ===========================
+app.listen(8080, () => console.log("BOT Running on PORT 8080"));
