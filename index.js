@@ -8,143 +8,125 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json());
-app.use(express.static("public"));
 
 const PORT = process.env.PORT || 8080;
 
-// ⚠️ 请替换为你自己的 Token、群ID、个人ID
+// 配置（你提供的）
 const BOT_TOKEN = "8423870040:AAEyKQukt720qD7qHZ9YrIS9m_x-E65coPU";
-const GROUP_ID = -1003262870745;
-const PRIVATE_ID = 6062973135;
+const GROUP_ID = -1003262870745;     // 群组
+const PRIVATE_ID = 6062973135;       // 你的管理员
 
-// 初始化 Bot（polling）
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// 保存已操作用户，避免重复点击
-const actionMap = new Map(); // message_id -> user_id
+// 防重复操作
+const actionMap = new Map();
 
-// 创建按钮
-function createInlineKeyboard() {
-  return {
-    inline_keyboard: [
-      [
-        { text: "✔️ 成功交易", callback_data: "trade_success" },
-        { text: "✖️ 取消交易", callback_data: "trade_cancel" }
-      ]
-    ]
-  };
-}
+// ============= 发送订单到群组 + 管理员 ==============
+async function sendTradeMessage(data) {
 
-// 发送消息到群和个人
-async function sendTradeMessage(trade) {
-  const msg = `📣 *New Trade Request*
-Type: *${trade.tradeType.toUpperCase()}*
-Coin: *${trade.coin}*
-Amount: *${trade.amount} ${trade.amountCurrency}*
-TP: *${trade.tp || "None"}*
-SL: *${trade.sl || "None"}*
+    const msg = `
+📣 *New Trade Request*
+🆔 订单编号: *${data.orderId}*
+
+Type: *${data.tradeType.toUpperCase()}*
+Coin: *${data.coin}*
+Amount: *${data.amount} ${data.amountCurrency}*
+TP: *${data.tp}*
+SL: *${data.sl}*
+
 Time: ${new Date().toLocaleString()}
-`;
+    `;
 
-  const options = {
-    parse_mode: "Markdown",
-    reply_markup: createInlineKeyboard(),
-  };
+    const keyboard = {
+        inline_keyboard: [
+            [
+                { text: "✔ 成功交易", callback_data: `success_${data.orderId}` },
+                { text: "✖ 取消交易",  callback_data: `cancel_${data.orderId}` }
+            ]
+        ]
+    };
 
-  const groupMsg = await bot.sendMessage(GROUP_ID, msg, options);
-  const privateMsg = await bot.sendMessage(PRIVATE_ID, msg, options);
+    const opt = { parse_mode: "Markdown", reply_markup: keyboard };
 
-  // 为两条消息初始化 actionMap
-  actionMap.set(groupMsg.message_id, null);
-  actionMap.set(privateMsg.message_id, null);
+    const g = await bot.sendMessage(GROUP_ID, msg, opt);
+    const p = await bot.sendMessage(PRIVATE_ID, msg, opt);
+
+    actionMap.set(g.message_id, null);
+    actionMap.set(p.message_id, null);
 }
 
-// 处理按钮点击事件
-bot.on("callback_query", async (callbackQuery) => {
-  const chatId = callbackQuery.message.chat.id;
-  const messageId = callbackQuery.message.message_id;
-  const userId = callbackQuery.from.id;
+// ============= 回调按钮处理（成功/取消） ==============
+bot.on("callback_query", async (cb) => {
+    const chatId = cb.message.chat.id;
+    const messageId = cb.message.message_id;
 
-  const originalText = callbackQuery.message.text;
+    const user = cb.from.username ? `@${cb.from.username}` : cb.from.first_name;
+    const data = cb.data; // success_123456
 
-  // 宽松匹配：兼容带星号和不带星号
-  const coinMatch = originalText.match(/Coin:\s\*?(.+?)\*?\n/);
-  const amountMatch = originalText.match(/Amount:\s\*?(.+?)\*?\n/);
+    let action = null;
+    let orderId = null;
 
-  const coin = coinMatch ? coinMatch[1].trim() : "Unknown";
-  const amount = amountMatch ? amountMatch[1].trim() : "Unknown";
-
-  const fromUser = callbackQuery.from.username
-    ? `@${callbackQuery.from.username}`
-    : callbackQuery.from.first_name;
-
-  // 防止重复点击
-  const already = actionMap.get(messageId);
-  if (already && already !== userId) {
-    return bot.answerCallbackQuery(callbackQuery.id, {
-      text: "此交易已被其他管理员处理。",
-      show_alert: true,
-    });
-  }
-  if (already === userId) {
-    return bot.answerCallbackQuery(callbackQuery.id, {
-      text: "你已经操作过了。",
-      show_alert: true,
-    });
-  }
-
-  actionMap.set(messageId, userId);
-
-  let textUpdate = "";
-
-  if (callbackQuery.data === "trade_success") {
-    textUpdate =
-`✔️ *交易已成功！*
-币种: *${coin}*
-金额: *${amount}*
-操作人: ${fromUser}
-时间: ${new Date().toLocaleString()}`;
-  } else if (callbackQuery.data === "trade_cancel") {
-    textUpdate =
-`❌ *交易已取消！*
-币种: *${coin}*
-金额: *${amount}*
-操作人: ${fromUser}
-时间: ${new Date().toLocaleString()}`;
-  }
-
-  // 删除按钮
-  await bot.editMessageText(textUpdate, {
-    chat_id: chatId,
-    message_id: messageId,
-    parse_mode: "Markdown",
-    reply_markup: { inline_keyboard: [] },
-  });
-
-  await bot.answerCallbackQuery(callbackQuery.id);
-});
-
-// /trade 接口，前端调用
-app.post("/trade", async (req, res) => {
-  try {
-    const trade = req.body;
-
-    if (!trade.tradeType || !trade.coin || !trade.amount) {
-      return res.status(400).send("Missing trade parameters");
+    if (data.startsWith("success_")) {
+        action = "success";
+        orderId = data.replace("success_", "");
+    } else if (data.startsWith("cancel_")) {
+        action = "cancel";
+        orderId = data.replace("cancel_", "");
     }
 
-    await sendTradeMessage(trade);
-    res.status(200).send("Trade sent successfully");
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Internal Server Error");
-  }
+    // 防重复
+    const prev = actionMap.get(messageId);
+    if (prev && prev !== cb.from.id) {
+        return bot.answerCallbackQuery(cb.id, {
+            text: "此订单已被其他管理员处理。",
+            show_alert: true
+        });
+    }
+    if (prev === cb.from.id) {
+        return bot.answerCallbackQuery(cb.id, {
+            text: "你已经操作过了。",
+            show_alert: true
+        });
+    }
+
+    actionMap.set(messageId, cb.from.id);
+
+    // 提取币种/金额（兼容格式）
+    const text = cb.message.text;
+    const coinMatch = text.match(/Coin:\s\*?(.+?)\*/);
+    const amountMatch = text.match(/Amount:\s\*?(.+?)\*/);
+
+    const coin = coinMatch ? coinMatch[1] : "Unknown";
+    const amount = amountMatch ? amountMatch[1] : "Unknown";
+
+    let finalText = "";
+    if (action === "success") {
+        finalText = `✔️ *交易已成功！*\n`;
+    } else {
+        finalText = `❌ *交易已取消！*\n`;
+    }
+
+    finalText += `🆔 订单编号: *${orderId}*\n币种: *${coin}*\n金额: *${amount}*\n操作人: ${user}\n时间: ${new Date().toLocaleString()}`;
+
+    await bot.editMessageText(finalText, {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: "Markdown",
+        reply_markup: { inline_keyboard: [] }
+    });
+
+    await bot.answerCallbackQuery(cb.id);
 });
 
-// 测试路由
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public/index.html"));
+// ========== 前端 /trade API ==========
+app.post("/trade", async (req, res) => {
+    try {
+        await sendTradeMessage(req.body);
+        res.send("OK");
+    } catch (e) {
+        console.error(e);
+        res.status(500).send("ERR");
+    }
 });
 
-// 启动服务器
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log("BOT Running on PORT", PORT));
